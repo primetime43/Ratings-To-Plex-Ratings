@@ -13,13 +13,24 @@ layout = [
     [sg.Text("Select a CSV file"), sg.Input(), sg.FileBrowse()],
     [sg.Text("Enter movie name"), sg.Input(key='-MOVIE-')],  # Input box for movie name
     [sg.Button("Find Movie", key='-FIND-MOVIE-')],  # Button to trigger movie search
-    [sg.OK(), sg.Cancel()]
+    [sg.OK(), sg.Cancel()],
+    [sg.Multiline(default_text='', key='-LOG-', size=(60, 10), autoscroll=True, disabled=True)]  # Log window
 ]
 
 window = sg.Window('IMDb Ratings To Plex Ratings - Not Logged In', layout)
 
 plex_account = None
 server = None  # Variable to store the selected Plex server
+
+# Function to log messages to the log window
+def log_message(window, title, release_date):
+    # Extract the year from the release date
+    year = release_date.split('-')[0]
+    # Log the movie title and year
+    window['-LOG-'].update(value=f'{title} ({year})\n', append=True)
+
+# List to store movie data from the CSV file
+movies_data = []
 
 while True:
     event, values = window.read()
@@ -85,12 +96,18 @@ while True:
     # If user selects a file
     if event == 'OK':
         filepath = values[0]
-
         try:
-            with open(filepath, 'r') as file:
-                csv_reader = csv.reader(file)
+            with open(filepath, 'r', encoding='utf-8') as file:
+                csv_reader = csv.DictReader(file)
                 for row in csv_reader:
-                    print(row)
+                    # Filter rows with Title Type "movie"
+                    if row['Title Type'] == 'movie':
+                        movies_data.append(row)
+                # Log filtered movie data
+                for movie in movies_data:
+                    log_message(window, movie['Title'], movie['Release Date'])
+            # Show a message with the number of movies found
+            sg.popup('Success', f'Found {len(movies_data)} movies in the CSV file.')
 
         except FileNotFoundError:
             sg.popup('Error', 'File not found')
