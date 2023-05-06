@@ -23,11 +23,8 @@ plex_account = None
 server = None  # Variable to store the selected Plex server
 
 # Function to log messages to the log window
-def log_message(window, title, release_date):
-    # Extract the year from the release date
-    year = release_date.split('-')[0]
-    # Log the movie title and year
-    window['-LOG-'].update(value=f'{title} ({year})\n', append=True)
+def log_message(window, message):
+    window['-LOG-'].update(value=message + '\n', append=True)
 
 # List to store movie data from the CSV file
 movies_data = []
@@ -103,12 +100,23 @@ while True:
                     # Filter rows with Title Type "movie"
                     if row['Title Type'] == 'movie':
                         movies_data.append(row)
-                # Log filtered movie data
+                # Log filtered movie data and update Plex rating
                 for movie in movies_data:
-                    log_message(window, movie['Title'], movie['Release Date'])
+                    your_rating = float(movie['Your Rating'])  # Convert the rating to float
+                    plex_rating = your_rating / 2
+                    # Extract the year from the release date
+                    year = movie['Release Date'].split('-')[0]
+                    # Log the movie title, year, original rating, and Plex rating
+                    log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
+                    # Search for the movie in the Plex library
+                    found_movies = server.library.section('Movies').search(title=movie['Title'])
+                    for found_movie in found_movies:
+                        # Update the Plex rating for the movie (Uses the your_rating because the api function will convert it from 10/10 to 5/5 rating scale)
+                        found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
+                        # Log a message indicating the movie rating has been updated
+                        log_message(window, f'Updated Plex rating for "{found_movie.title}" to {plex_rating}.')
             # Show a message with the number of movies found
-            sg.popup('Success', f'Found {len(movies_data)} movies in the CSV file.')
-
+            sg.popup('Success', f'Found {len(movies_data)} movies in the CSV file. Plex ratings updated.')
         except FileNotFoundError:
             sg.popup('Error', 'File not found')
 
