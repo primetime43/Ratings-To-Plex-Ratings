@@ -1,6 +1,7 @@
 import csv
 import webbrowser
 import PySimpleGUI as sg
+import threading
 from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 
 # Initialize an empty dictionary to store the resources
@@ -11,9 +12,7 @@ layout = [
     [sg.Button("Login to Plex", key='-LOGIN-')],
     [sg.Text("Plex Server"), sg.Combo([], key='-SERVER-', enable_events=True, readonly=True, size=(20,10))],
     [sg.Text("Select a CSV file"), sg.Input(), sg.FileBrowse()],
-    [sg.Text("Enter movie name"), sg.Input(key='-MOVIE-')],  # Input box for movie name
-    [sg.Button("Find Movie", key='-FIND-MOVIE-')],  # Button to trigger movie search
-    [sg.OK(), sg.Cancel()],
+    [sg.Button("Update Plex Movie Ratings", key='OK', disabled=True)],  # Disable the button initially
     [sg.Multiline(default_text='', key='-LOG-', size=(60, 10), autoscroll=True, disabled=True)]  # Log window
 ]
 
@@ -25,6 +24,14 @@ server = None  # Variable to store the selected Plex server
 # Function to log messages to the log window
 def log_message(window, message):
     window['-LOG-'].update(value=message + '\n', append=True)
+
+# Define a function to connect to the server in a separate thread
+def connect_to_server(selected_server_info, resource):
+    log_message(window, f'Connecting to {selected_server_info}')
+    server = resource.connect()
+    log_message(window, f'Connected to {selected_server_info}')
+    window['OK'].update(disabled=False)  # Enable the update button
+    return server
 
 # List to store movie data from the CSV file
 movies_data = []
@@ -72,27 +79,19 @@ while True:
     # If user selects a server
     if event == '-SERVER-':
         if plex_account:
-            # Look up the resource in the dictionary and connect to it
-            resource = resources_dict[values['-SERVER-']]
-            server = resource.connect()
-            print(f"Connected to {server.friendlyName}")
+            # Get the selected server's name and IP address from the combo box
+            selected_server_info = values['-SERVER-']
+            
+            # Look up the resource in the dictionary
+            resource = resources_dict[selected_server_info]
+            
+            # Start a new thread to connect to the server
+            connection_thread = threading.Thread(target=connect_to_server, args=(selected_server_info, resource))
+            connection_thread.start()
 
-    # If user clicks Find Movie button
-    if event == '-FIND-MOVIE-':
-        movie_name = values['-MOVIE-'].strip()  # Get the entered movie name
-        if server and movie_name:
-            # Search for the movie in the Plex library
-            movies = server.library.section('Movies').search(title=movie_name)
-            if movies:
-                sg.popup('Success', f'Found {len(movies)} movies with the name "{movie_name}".')
-            else:
-                sg.popup('Error', f'Could not find any movies with the name "{movie_name}".')
-        else:
-            sg.popup('Error', 'Please select a server and enter a movie name.')
-
-    # If user selects a file
+    # If user selects a file and clicks "Update Plex Movie Ratings" button
     if event == 'OK':
-        filepath = values[0]
+        filepath = values['-CSV-']
         try:
             with open(filepath, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
