@@ -11,8 +11,9 @@ resources_dict = {}
 layout = [
     [sg.Button("Login to Plex", key='-LOGIN-')],
     [sg.Text("Plex Server"), sg.Combo([], key='-SERVER-', enable_events=True, readonly=True, size=(20,10))],
-    [sg.Text("Select a CSV file"), sg.Input(), sg.FileBrowse()],
+    [sg.Text("Select a CSV file"), sg.Input(key='-CSV-'), sg.FileBrowse()],  # Add key='-CSV-' to the input element
     [sg.Button("Update Plex Movie Ratings", key='OK', disabled=True)],  # Disable the button initially
+    [sg.ProgressBar(1000, orientation='h', size=(20, 20), key='-PROGRESS-')],  # Progress bar
     [sg.Multiline(default_text='', key='-LOG-', size=(60, 10), autoscroll=True, disabled=True)]  # Log window
 ]
 
@@ -27,11 +28,35 @@ def log_message(window, message):
 
 # Define a function to connect to the server in a separate thread
 def connect_to_server(selected_server_info, resource):
+    global server  # Declare server as a global variable before assigning a value to it
     log_message(window, f'Connecting to {selected_server_info}')
     server = resource.connect()
     log_message(window, f'Connected to {selected_server_info}')
     window['OK'].update(disabled=False)  # Enable the update button
-    return server
+
+# Function to update movie ratings and progress bar
+def update_ratings(filepath, progress_bar):
+    global server  # Access the global server variable
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            csv_reader = csv.DictReader(file)
+            movies_data = [row for row in csv_reader if row['Title Type'] == 'movie']
+            total_movies = len(movies_data)
+            for i, movie in enumerate(movies_data):
+                your_rating = float(movie['Your Rating'])  # Convert the rating to float
+                plex_rating = your_rating / 2
+                year = movie['Release Date'].split('-')[0]
+                log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
+                found_movies = server.library.section('Movies').search(title=movie['Title'])
+                for found_movie in found_movies:
+                    found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
+                    log_message(window, f'Updated Plex rating for "{found_movie.title}" to {plex_rating}.')
+                # Update progress bar
+                progress = int(((i+1) / total_movies) * 1000)
+                progress_bar.update_bar(progress)
+            sg.popup('Success', f'Found {total_movies} movies in the CSV file. Plex ratings updated.')
+    except FileNotFoundError:
+        sg.popup('Error', 'File not found')
 
 # List to store movie data from the CSV file
 movies_data = []
@@ -92,31 +117,10 @@ while True:
     # If user selects a file and clicks "Update Plex Movie Ratings" button
     if event == 'OK':
         filepath = values['-CSV-']
-        try:
-            with open(filepath, 'r', encoding='utf-8') as file:
-                csv_reader = csv.DictReader(file)
-                for row in csv_reader:
-                    # Filter rows with Title Type "movie"
-                    if row['Title Type'] == 'movie':
-                        movies_data.append(row)
-                # Log filtered movie data and update Plex rating
-                for movie in movies_data:
-                    your_rating = float(movie['Your Rating'])  # Convert the rating to float
-                    plex_rating = your_rating / 2
-                    # Extract the year from the release date
-                    year = movie['Release Date'].split('-')[0]
-                    # Log the movie title, year, original rating, and Plex rating
-                    log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
-                    # Search for the movie in the Plex library
-                    found_movies = server.library.section('Movies').search(title=movie['Title'])
-                    for found_movie in found_movies:
-                        # Update the Plex rating for the movie (Uses the your_rating because the api function will convert it from 10/10 to 5/5 rating scale)
-                        found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
-                        # Log a message indicating the movie rating has been updated
-                        log_message(window, f'Updated Plex rating for "{found_movie.title}" to {plex_rating}.')
-            # Show a message with the number of movies found
-            sg.popup('Success', f'Found {len(movies_data)} movies in the CSV file. Plex ratings updated.')
-        except FileNotFoundError:
-            sg.popup('Error', 'File not found')
+        if not filepath:  # Check if the filepath is empty
+            sg.popup('Error', 'Please select a CSV file')
+        else:
+            progress_bar = window['-PROGRESS-']
+            update_ratings(filepath, progress_bar)  # Call the update_ratings function
 
 window.close()
