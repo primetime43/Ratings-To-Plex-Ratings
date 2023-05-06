@@ -25,3 +25,6 @@ The application logs all the operations it performs, which includes connecting t
 2. Once you're signed in, click on your username in the top right corner and select "Your Ratings" from the dropdown menu.
 3. In the "Your Ratings" page, you will find an "Export" button, usually located on the right side of the page. Click on it.
 4. A CSV file will then be downloaded to your device, containing all your IMDb ratings.
+
+**Requirements:**
+- Python 3.10
