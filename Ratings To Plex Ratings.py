@@ -42,18 +42,36 @@ def update_ratings(filepath, progress_bar):
             csv_reader = csv.DictReader(file)
             movies_data = [row for row in csv_reader if row['Title Type'] == 'movie']
             total_movies = len(movies_data)
+            
+            # Get the Movies library section
+            movies_section = server.library.section('Movies')
+            
+            # Create guidLookup dictionary for faster performance
+            guidLookup = {}
+            for item in movies_section.all():
+                guidLookup[item.guid] = item
+                guidLookup.update({guid.id: item for guid in item.guids})
+            
             for i, movie in enumerate(movies_data):
                 your_rating = float(movie['Your Rating'])  # Convert the rating to float
                 plex_rating = your_rating / 2
                 year = movie['Release Date'].split('-')[0]
                 log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
-                found_movies = server.library.section('Movies').search(title=movie['Title'])
-                for found_movie in found_movies:
+                
+                # Use the getGuid method to search for the movie using its IMDb ID
+                imdb_id = movie['Const']  # Extract the IMDb ID from the "Const" column
+                found_movie = guidLookup.get(f'imdb://{imdb_id}')  # Search for the movie in the guidLookup dictionary
+                
+                if found_movie:
                     found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
                     log_message(window, f'Updated Plex rating for "{found_movie.title}" to {plex_rating}.')
+                else:
+                    log_message(window, f'Movie "{movie["Title"]} ({year})" not found in Plex library.')
+                
                 # Update progress bar
                 progress = int(((i+1) / total_movies) * 1000)
                 progress_bar.update_bar(progress)
+                
             sg.popup('Success', f'Found {total_movies} movies in the CSV file. Plex ratings updated.')
     except FileNotFoundError:
         sg.popup('Error', 'File not found')
