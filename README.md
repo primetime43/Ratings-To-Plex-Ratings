@@ -29,4 +29,4 @@ The application logs all the operations it performs, which includes connecting t
 **Requirements:**
 - Python 3.10
 
-![image](https://user-images.githubusercontent.com/12754111/236639027-f0ac63bb-af84-49de-ac9b-d6dcb8c82933.png)
+![image](https://user-images.githubusercontent.com/12754111/236724758-bbcc1aae-7f5f-4406-8772-32fd8897459d.png)
