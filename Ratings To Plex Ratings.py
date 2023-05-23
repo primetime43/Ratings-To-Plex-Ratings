@@ -11,6 +11,7 @@ resources_dict = {}
 layout = [
     [sg.Button("Login to Plex", key='-LOGIN-')],
     [sg.Text("Plex Server"), sg.Combo([], key='-SERVER-', enable_events=True, readonly=True, size=(20,10))],
+    [sg.Text("Plex Library"), sg.Combo([], key='-LIBRARY-', enable_events=True, readonly=True, size=(20,10))],
     [sg.Text("Select a CSV file"), sg.Input(key='-CSV-'), sg.FileBrowse()],  # Add key='-CSV-' to the input element
     [sg.Button("Update Plex Movie Ratings", key='OK', disabled=True)],  # Disable the button initially
     [sg.ProgressBar(1000, orientation='h', size=(20, 20), key='-PROGRESS-')],  # Progress bar
@@ -32,23 +33,26 @@ def connect_to_server(selected_server_info, resource):
     log_message(window, f'Connecting to {selected_server_info}')
     server = resource.connect()
     log_message(window, f'Connected to {selected_server_info}')
+    library_names = [library.title for library in server.library.sections()]
+    window['-LIBRARY-'].update(values=library_names)
     window['OK'].update(disabled=False)  # Enable the update button
 
 # Function to update movie ratings and progress bar
 def update_ratings(filepath, progress_bar):
     global server  # Access the global server variable
+    # Get the selected library section
+    selected_library = values['-LIBRARY-']
+    library_section = server.library.section(selected_library)
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             csv_reader = csv.DictReader(file)
             movies_data = [row for row in csv_reader if row['Title Type'] == 'movie']
             total_movies = len(movies_data)
-            
-            # Get the Movies library section
-            movies_section = server.library.section('Movies')
+            total_updated_movies = 0
             
             # Create guidLookup dictionary for faster performance
             guidLookup = {}
-            for item in movies_section.all():
+            for item in library_section.all():
                 guidLookup[item.guid] = item
                 guidLookup.update({guid.id: item for guid in item.guids})
             
@@ -56,7 +60,7 @@ def update_ratings(filepath, progress_bar):
                 your_rating = float(movie['Your Rating'])  # Convert the rating to float
                 plex_rating = your_rating / 2
                 year = movie['Release Date'].split('-')[0]
-                log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
+                #log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
                 
                 # Use the getGuid method to search for the movie using its IMDb ID
                 imdb_id = movie['Const']  # Extract the IMDb ID from the "Const" column
@@ -64,15 +68,16 @@ def update_ratings(filepath, progress_bar):
                 
                 if found_movie:
                     found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
-                    log_message(window, f'Updated Plex rating for "{found_movie.title}" to {plex_rating}.')
-                else:
-                    log_message(window, f'Movie "{movie["Title"]} ({year})" not found in Plex library.')
+                    log_message(window, f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}.')
+                    total_updated_movies += 1
+                #else:
+                    #log_message(window, f'Movie "{movie["Title"]} ({year})" not found in Plex library.')
                 
                 # Update progress bar
                 progress = int(((i+1) / total_movies) * 1000)
                 progress_bar.update_bar(progress)
                 
-            sg.popup('Success', f'Found {total_movies} movies in the CSV file. Plex ratings updated.')
+            sg.popup('Success', f'Found {total_movies} movies in the CSV file. {total_updated_movies} Plex ratings updated.')
     except FileNotFoundError:
         sg.popup('Error', 'File not found')
 
