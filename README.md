@@ -2,6 +2,10 @@
 
 This application is designed to help you import your IMDb ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb ratings.
 
+v1.1 <br>
+![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/453b78ab-2b90-4368-a796-feb97d8548be)
+
+
 ## **How it works**
 
 This script uses a simple GUI to authenticate with your Plex account, select a server, import a CSV file with your IMDb ratings, and update the ratings of your Plex movie library accordingly.
@@ -35,5 +39,3 @@ pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
 
 **Requirements:**
 - Python 3.10
-
-![image](https://user-images.githubusercontent.com/12754111/236724758-bbcc1aae-7f5f-4406-8772-32fd8897459d.png)
