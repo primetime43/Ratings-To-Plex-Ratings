@@ -12,13 +12,20 @@ Here's a brief rundown of the steps:
 
 2. **Select a server**: The application fetches all the servers associated with your Plex account that you own. You can then select the server whose movie ratings you want to update.
 
-3. **Select a CSV file**: You can choose a CSV file exported from IMDb containing your movie ratings. The application reads the file and prepares to update the ratings on your Plex server.
+3. **Select a library**: Select the library to retrieve and update the ratings for this library.
 
-4. **Update Plex Movie Ratings**: Clicking this button starts the process of updating the movie ratings on the Plex server. The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. 
+4. **Select a CSV file**: You can choose a CSV file exported from IMDb containing your movie ratings. The application reads the file and prepares to update the ratings on your Plex server.
+
+5. **Update Plex Movie Ratings**: Clicking this button starts the process of updating the movie ratings on the Plex server. The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. 
 
 Please note that the rating scale on Plex is different from IMDb. IMDb uses a scale of 1-10 while Plex uses a scale of 1-5. This script automatically adjusts the ratings from IMDb's scale to Plex's scale.
 
 The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. If an error occurs during the login or updating process, the application will display an error message.
+
+**Command for creating an exe out of the python file**
+```
+pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
+```
 
 **Exporting Your IMDb Ratings:**
 1. Go to IMDb and sign into your account.
