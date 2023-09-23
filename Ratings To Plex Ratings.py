@@ -13,7 +13,11 @@ layout = [
     [sg.Text("Plex Server"), sg.Combo([], key='-SERVER-', enable_events=True, readonly=True, size=(20,10))],
     [sg.Text("Plex Library"), sg.Combo([], key='-LIBRARY-', enable_events=True, readonly=True, size=(20,10))],
     [sg.Text("Select a CSV file"), sg.Input(key='-CSV-'), sg.FileBrowse()],  # Add key='-CSV-' to the input element
-    [sg.Button("Update Plex Movie Ratings", key='OK', disabled=True)],  # Disable the button initially
+    [sg.Checkbox('Movie', key='-MOVIE-', default=True), 
+     sg.Checkbox('TV Series', key='-TVSERIES-', default=True), 
+     sg.Checkbox('TV Mini Series', key='-TVMINISERIES-', default=True), 
+     sg.Checkbox('TV Movie', key='-TVMOVIE-', default=True)],
+    [sg.Button("Update Plex Ratings", key='OK', disabled=True)],  # Disable the button initially
     [sg.ProgressBar(1000, orientation='h', size=(20, 20), key='-PROGRESS-')],  # Progress bar
     [sg.Multiline(default_text='', key='-LOG-', size=(60, 10), autoscroll=True, disabled=True)]  # Log window
 ]
@@ -43,10 +47,21 @@ def update_ratings(filepath, progress_bar):
     # Get the selected library section
     selected_library = values['-LIBRARY-']
     library_section = server.library.section(selected_library)
+
+    selected_media_types = []
+    if values['-MOVIE-']:
+        selected_media_types.append('movie')
+    if values['-TVSERIES-']:
+        selected_media_types.append('tvSeries')
+    if values['-TVMINISERIES-']:
+        selected_media_types.append('tvMiniSeries')
+    if values['-TVMOVIE-']:
+        selected_media_types.append('tvMovie')
+
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             csv_reader = csv.DictReader(file)
-            movies_data = [row for row in csv_reader if row['Title Type'] == 'movie']
+            movies_data = [row for row in csv_reader if row['Title Type'] in selected_media_types]
             total_movies = len(movies_data)
             total_updated_movies = 0
             
@@ -77,7 +92,7 @@ def update_ratings(filepath, progress_bar):
                 progress = int(((i+1) / total_movies) * 1000)
                 progress_bar.update_bar(progress)
                 
-            sg.popup('Success', f'Found {total_movies} movies in the CSV file. {total_updated_movies} Plex ratings updated.')
+            sg.popup('Success', f'Found {total_movies} media items in the CSV file. {total_updated_movies} Plex ratings updated.')
     except FileNotFoundError:
         sg.popup('Error', 'File not found')
 
@@ -103,10 +118,13 @@ while True:
             if pinlogin.token:
                 plex_account = MyPlexAccount(token=pinlogin.token)
                 username = plex_account.username  # Get the username
-                resources = [resource for resource in plex_account.resources() if resource.owned]
+                resources = [resource for resource in plex_account.resources() if resource.owned and resource.connections and resource.provides == 'server']
                 # Update the resources_dict and servers list
                 for resource in resources:
-                    server_name = f"{resource.name} ({resource.connections[0].address})"
+                    if resource.connections:
+                        server_name = f"{resource.name} ({resource.connections[0].address})"
+                    else:
+                        server_name = f"{resource.name} (No Available Connections)"
                     resources_dict[server_name] = resource
                 servers = list(resources_dict.keys())
                 max_len = max(len(server) for server in servers)
