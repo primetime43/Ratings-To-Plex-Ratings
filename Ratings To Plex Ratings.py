@@ -12,6 +12,7 @@ layout = [
     [sg.Button("Login to Plex", key='-LOGIN-')],
     [sg.Text("Plex Server"), sg.Combo([], key='-SERVER-', enable_events=True, readonly=True, size=(20,10))],
     [sg.Text("Plex Library"), sg.Combo([], key='-LIBRARY-', enable_events=True, readonly=True, size=(20,10))],
+    [sg.Radio('IMDb', "RADIO1", default=True, key='-IMDB-', enable_events=True), sg.Radio('Letterboxd', "RADIO1", key='-LETTERBOXD-', enable_events=True)],
     [sg.Text("Select a CSV file"), sg.Input(key='-CSV-'), sg.FileBrowse()],  # Add key='-CSV-' to the input element
     [sg.Checkbox('Movie', key='-MOVIE-', default=True), 
      sg.Checkbox('TV Series', key='-TVSERIES-', default=True), 
@@ -41,54 +42,97 @@ def connect_to_server(selected_server_info, resource):
     window['-LIBRARY-'].update(values=library_names)
     window['OK'].update(disabled=False)  # Enable the update button
 
-# Function to update movie ratings and progress bar
-def update_ratings(filepath, progress_bar):
+# Function to update ratings and progress bar
+def update_ratings(filepath, progress_bar, values):
     global server  # Access the global server variable
+    
     # Get the selected library section
     selected_library = values['-LIBRARY-']
     library_section = server.library.section(selected_library)
 
-    selected_media_types = []
-    if values['-MOVIE-']:
-        selected_media_types.append('movie')
-    if values['-TVSERIES-']:
-        selected_media_types.append('tvSeries')
-    if values['-TVMINISERIES-']:
-        selected_media_types.append('tvMiniSeries')
-    if values['-TVMOVIE-']:
-        selected_media_types.append('tvMovie')
-
     try:
         with open(filepath, 'r', encoding='utf-8') as file:
             csv_reader = csv.DictReader(file)
-            movies_data = [row for row in csv_reader if row['Title Type'] in selected_media_types]
-            total_movies = len(movies_data)
-            total_updated_movies = 0
             
-            # Create guidLookup dictionary for faster performance
-            guidLookup = {}
-            for item in library_section.all():
-                guidLookup[item.guid] = item
-                guidLookup.update({guid.id: item for guid in item.guids})
-            
+            if values['-IMDB-']:  # If IMDb is selected
+                selected_media_types = []
+                if values['-MOVIE-']:
+                    selected_media_types.append('movie')
+                if values['-TVSERIES-']:
+                    selected_media_types.append('tvSeries')
+                if values['-TVMINISERIES-']:
+                    selected_media_types.append('tvMiniSeries')
+                if values['-TVMOVIE-']:
+                    selected_media_types.append('tvMovie')
+                
+                movies_data = [row for row in csv_reader if row['Title Type'] in selected_media_types]
+                total_movies = len(movies_data)
+                total_updated_movies = 0
+                
+                # Create guidLookup dictionary for faster performance
+                guidLookup = {}
+                for item in library_section.all():
+                    guidLookup[item.guid] = item
+                    guidLookup.update({guid.id: item for guid in item.guids})
+                
+                for i, movie in enumerate(movies_data):
+                    your_rating = float(movie['Your Rating'])
+                    plex_rating = your_rating / 2
+                    
+                    imdb_id = movie['Const']
+                    found_movie = guidLookup.get(f'imdb://{imdb_id}')
+                    
+                    if found_movie:
+                        found_movie.rate(rating=your_rating)
+                        log_message(window, f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}.')
+                        total_updated_movies += 1
+                        
+            elif values['-LETTERBOXD-']:  # If Letterboxd is selected
+                movies_data = []
+                seen_movies = set()
+
+                for row in csv_reader:
+                    if not row['Name'] or not row['Year'] or not row['Rating']:
+                        continue
+                    movie_key = (row['Name'], row['Year'])
+                    if movie_key not in seen_movies:
+                        movies_data.append(row)
+                        seen_movies.add(movie_key)
+
+                total_movies = len(movies_data)
+                total_updated_movies = 0
+                
+                # Optimized: Preprocess library data
+                library_movies = {(item.title, str(item.year)): item for item in library_section.all()}
+                
+                # Iterate over movies_data list
+                for i, movie in enumerate(movies_data):
+                    try:
+                        name = movie['Name']
+                        year = movie['Year']
+                        library_movie = library_movies.get((name, year))
+                        
+                        if not library_movie:
+                            #log_message(window, f'Movie "{name} ({year})" not found in Plex library.')
+                            continue  # Skip to the next iteration
+                        
+                        rating_str = movie['Rating']
+                        if not rating_str.replace('.', '', 1).isdigit():
+                            log_message(window, f'Invalid rating "{rating_str}" for "{name} ({year})". Skipping.')
+                            continue
+                        
+                        your_rating = float(rating_str)
+                        
+                        # Rate the movie
+                        library_movie.rate(rating=your_rating)
+                        log_message(window, f'Updated Plex rating for "{library_movie.title} ({library_movie.year})" to {your_rating}.')
+                        total_updated_movies += 1
+                    except Exception as e:
+                        log_message(window, f'Error processing "{name} ({year})": {str(e)}. Skipping.')
+
+                
+            # Progress bar
             for i, movie in enumerate(movies_data):
-                your_rating = float(movie['Your Rating'])  # Convert the rating to float
-                plex_rating = your_rating / 2
-                year = movie['Release Date'].split('-')[0]
-                #log_message(window, f'{movie["Title"]} ({year}) - Your Rating: {your_rating} --> {plex_rating} Plex Rating')
-                
-                # Use the getGuid method to search for the movie using its IMDb ID
-                imdb_id = movie['Const']  # Extract the IMDb ID from the "Const" column
-                found_movie = guidLookup.get(f'imdb://{imdb_id}')  # Search for the movie in the guidLookup dictionary
-                
-                if found_movie:
-                    found_movie.rate(rating=your_rating)  # Use the .rate(rating) method
-                    log_message(window, f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}.')
-                    total_updated_movies += 1
-                #else:
-                    #log_message(window, f'Movie "{movie["Title"]} ({year})" not found in Plex library.')
-                
-                # Update progress bar
                 progress = int(((i+1) / total_movies) * 1000)
                 progress_bar.update_bar(progress)
                 
@@ -105,6 +149,18 @@ while True:
     # If user closes window or clicks cancel
     if event == sg.WINDOW_CLOSED or event == 'Cancel':
         break
+
+    # Check the state of the radio buttons and adjust the UI accordingly
+    if values['-IMDB-']:  # if IMDb is selected
+        window['-MOVIE-'].update(value=True, disabled=False)  # Enable and Select Movie Checkbox
+        window['-TVSERIES-'].update(value=True, disabled=False)  # Enable and Select TV Series Checkbox
+        window['-TVMINISERIES-'].update(value=True, disabled=False)  # Enable and Select TV Mini Series Checkbox
+        window['-TVMOVIE-'].update(value=True, disabled=False)  # Enable and Select TV Movie Checkbox
+    elif values['-LETTERBOXD-']:  # if Letterboxd is selected
+        window['-MOVIE-'].update(value=True, disabled=False)  # Enable and Select Movie Checkbox
+        window['-TVSERIES-'].update(value=False, disabled=True)  # Unselect and Disable TV Series Checkbox
+        window['-TVMINISERIES-'].update(value=False, disabled=True)  # Unselect and Disable TV Mini Series Checkbox
+        window['-TVMOVIE-'].update(value=False, disabled=True)  # Unselect and Disable TV Movie Checkbox
 
     # If user clicks Login button
     if event == '-LOGIN-':
@@ -162,6 +218,6 @@ while True:
             sg.popup('Error', 'Please select a CSV file')
         else:
             progress_bar = window['-PROGRESS-']
-            update_ratings(filepath, progress_bar)  # Call the update_ratings function
+            update_ratings(filepath, progress_bar, values) # gives access to the values dictionary, and it can use the values of the different elements in the GUI, such as radio buttons, checkboxes, etc
 
 window.close()
