@@ -37,5 +37,9 @@ pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
 3. In the "Your Ratings" page, you will find an "Export" button, usually located on the right side of the page. Click on it.
 4. A CSV file will then be downloaded to your device, containing all your IMDb ratings.
 
+**Exporting Your Letterboxd Ratings:**
+1. Go [here to letterboxd](https://letterboxd.com/settings/data/) and export your data.
+2. Once exported, use the ratings.csv file in that zip file in the program to update the ratings.
+
 **Requirements:**
 - Python 3.10
