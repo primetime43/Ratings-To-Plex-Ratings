@@ -7,6 +7,9 @@ from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 # Initialize an empty dictionary to store the resources
 resources_dict = {}
 
+# Set the version number
+VERSION = '1.2'
+
 # Create a GUI window
 layout = [
     [sg.Button("Login to Plex", key='-LOGIN-')],
@@ -23,7 +26,7 @@ layout = [
     [sg.Multiline(default_text='', key='-LOG-', size=(60, 10), autoscroll=True, disabled=True)]  # Log window
 ]
 
-window = sg.Window('IMDb Ratings To Plex Ratings - Not Logged In', layout)
+window = sg.Window(f'IMDb Ratings To Plex Ratings v{VERSION} - Not Logged In', layout)
 
 plex_account = None
 server = None  # Variable to store the selected Plex server
