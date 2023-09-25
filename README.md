@@ -1,3 +1,11 @@
+# Table of Contents
+- [IMDb Ratings To Plex Ratings](#imdb-ratings-to-plex-ratings)
+- [How it works](#how-it-works)
+- [Command for creating an exe out of the python file](#command-for-creating-an-exe-out-of-the-python-file)
+- [Exporting Your IMDb Ratings](#exporting-your-imdb-ratings)
+- [Exporting Your Letterboxd Ratings](#exporting-your-letterboxd-ratings)
+- [Requirements](#requirements)
+
 # **IMDb Ratings To Plex Ratings**
 
 This application is designed to help you import your IMDb ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb ratings.
@@ -26,20 +34,20 @@ Please note that the rating scale on Plex is different from IMDb. IMDb uses a sc
 
 The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. If an error occurs during the login or updating process, the application will display an error message.
 
-**Command for creating an exe out of the python file**
+## **Command for creating an exe out of the python file**
 ```
 pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
 ```
 
-**Exporting Your IMDb Ratings:**
+## **Exporting Your IMDb Ratings:**
 1. Go to IMDb and sign into your account.
 2. Once you're signed in, click on your username in the top right corner and select "Your Ratings" from the dropdown menu.
 3. In the "Your Ratings" page, you will find an "Export" button, usually located on the right side of the page. Click on it.
 4. A CSV file will then be downloaded to your device, containing all your IMDb ratings.
 
-**Exporting Your Letterboxd Ratings:**
+## **Exporting Your Letterboxd Ratings:**
 1. Go [here to letterboxd](https://letterboxd.com/settings/data/) and export your data.
 2. Once exported, use the ratings.csv file in that zip file in the program to update the ratings.
 
-**Requirements:**
+## **Requirements:**
 - Python 3.10
