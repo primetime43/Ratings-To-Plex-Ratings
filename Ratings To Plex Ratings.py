@@ -86,7 +86,7 @@ def update_ratings(filepath, progress_bar, values):
                     found_movie = guidLookup.get(f'imdb://{imdb_id}')
                     
                     if found_movie:
-                        found_movie.rate(rating=your_rating)
+                        found_movie.rate(rating=your_rating)# this function must half it itself, so keep it out of 10 here
                         log_message(window, f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}.')
                         total_updated_movies += 1
                         
@@ -124,11 +124,11 @@ def update_ratings(filepath, progress_bar, values):
                             log_message(window, f'Invalid rating "{rating_str}" for "{name} ({year})". Skipping.')
                             continue
                         
-                        your_rating = float(rating_str)
+                        your_rating = int(rating_str)*2
                         
                         # Rate the movie
-                        library_movie.rate(rating=your_rating)
-                        log_message(window, f'Updated Plex rating for "{library_movie.title} ({library_movie.year})" to {your_rating}.')
+                        library_movie.rate(rating=your_rating) # this function must half it itself, so keep it out of 10 here
+                        log_message(window, f'Updated Plex rating for "{library_movie.title} ({library_movie.year})" to {your_rating/2}.')
                         total_updated_movies += 1
                     except Exception as e:
                         log_message(window, f'Error processing "{name} ({year})": {str(e)}. Skipping.')
