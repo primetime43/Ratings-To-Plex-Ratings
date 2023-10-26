@@ -8,7 +8,7 @@ from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 resources_dict = {}
 
 # Set the version number
-VERSION = '1.2'
+VERSION = '1.2.1'
 
 # Create a GUI window
 layout = [
