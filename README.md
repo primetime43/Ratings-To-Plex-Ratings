@@ -10,11 +10,11 @@
 
 This application is designed to help you import your IMDb ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb ratings.
 
-v1.1 <br>
-![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/453b78ab-2b90-4368-a796-feb97d8548be)
-
 v1.2 <br>
 ![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/b74b5ecf-84a3-4a7d-96be-3fd8e6ff66b5)
+
+v1.1 <br>
+![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/453b78ab-2b90-4368-a796-feb97d8548be)
 
 ## **How it works**
 
