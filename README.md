@@ -8,7 +8,7 @@
 
 # **IMDb Ratings To Plex Ratings**
 
-This application is designed to help you import your IMDb ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb ratings.
+This application is designed to help you import your IMDb/Letterboxd ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb/Letterboxd ratings.
 
 v1.2 <br>
 ![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/b74b5ecf-84a3-4a7d-96be-3fd8e6ff66b5)
@@ -18,7 +18,7 @@ v1.1 <br>
 
 ## **How it works**
 
-This script uses a simple GUI to authenticate with your Plex account, select a server, import a CSV file with your IMDb ratings, and update the ratings of your Plex movie library accordingly.
+This script uses a simple GUI to authenticate with your Plex account, select a server, import a CSV file with your IMDb/Letterboxd ratings, and update the ratings of your Plex movie library accordingly.
 
 Here's a brief rundown of the steps:
 
@@ -28,7 +28,7 @@ Here's a brief rundown of the steps:
 
 3. **Select a library**: Select the library to retrieve and update the ratings for this library.
 
-4. **Select a CSV file**: You can choose a CSV file exported from IMDb containing your movie ratings. The application reads the file and prepares to update the ratings on your Plex server.
+4. **Select a CSV file**: You can choose a CSV file exported from IMDb/Letterboxd containing your movie ratings. The application reads the file and prepares to update the ratings on your Plex server.
 
 5. **Update Plex Movie Ratings**: Clicking this button starts the process of updating the movie ratings on the Plex server. The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. 
 
