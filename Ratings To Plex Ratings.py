@@ -8,7 +8,7 @@ from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 resources_dict = {}
 
 # Set the version number
-VERSION = '1.2.1'
+VERSION = '1.2.2'
 
 # Create a GUI window
 layout = [
@@ -124,7 +124,7 @@ def update_ratings(filepath, progress_bar, values):
                             log_message(window, f'Invalid rating "{rating_str}" for "{name} ({year})". Skipping.')
                             continue
                         
-                        your_rating = int(rating_str)*2
+                        your_rating = float(rating_str)*2
                         
                         # Rate the movie
                         library_movie.rate(rating=your_rating) # this function must half it itself, so keep it out of 10 here
