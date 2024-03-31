@@ -1,11 +1,12 @@
 import customtkinter as ctk
+import threading
 import tkinter as tk
 from tkinter import StringVar
 from tkinter import filedialog
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 
 # Set the version number
-VERSION = '1.2.2'
+VERSION = '2.0.0'
 
 class IMDbRatingsToPlexRatingsApp(ctk.CTk):
     def __init__(self):
@@ -100,21 +101,18 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.log_label.pack(pady=10)
     
     def update_ratings(self):
-        # Get the selected library and file path
+        # Disable UI elements
+        self._set_ui_state('disabled')
+        # Start the background thread
+        threading.Thread(target=self._update_ratings_thread, daemon=True).start()
+    
+    def _update_ratings_thread(self):
         selected_library = self.library_var.get()
         filepath = self.selected_file_path
-
-        # Ensure a file is selected
-        if not filepath:
-            self.log_message("Please select a file first.")
+        if not filepath or selected_library == "Select a library":
+            self.log_message("Please select a file and a library first.")
             return
 
-        # Ensure a library is selected
-        if selected_library is None or selected_library == "Select a library":
-            self.log_message("Please select a library first.")
-            return
-
-        # Collect values to determine the source (IMDb or Letterboxd)
         values = {
             "-IMDB-": self.radio_value.get() == "IMDb",
             "-LETTERBOXD-": self.radio_value.get() == "Letterboxd",
@@ -123,17 +121,34 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-TVMINISERIES-": self.tv_mini_series_var.get(),
             "-TVMOVIE-": self.tv_movie_var.get()
         }
-        
+
         self.controller.update_ratings(filepath, selected_library, values)
+        # re-enable the UI elements on the main thread
+        self.after(0, self._set_ui_state, 'normal')
 
     def update_servers_ui(self, servers, success):
-        if success and servers:
-            # Update server dropdown with fetched servers
-            self.server_menu.configure(values=servers)
-            self.log_message("Servers fetched successfully. Please select a server.")
-        else:
-            self.log_message("Failed to fetch servers.")
+        def update():
+            if success and servers:
+                self.server_menu.configure(values=servers)
+                self.log_message("Servers fetched successfully. Please select a server.")
+            else:
+                self.log_message("Failed to fetch servers.")
+        self.after(0, update)
         
+    def _set_ui_state(self, state):
+        # Disable or enable UI elements
+        self.startUpdate_button.configure(state=state)
+        self.select_file_button.configure(state=state)
+        self.server_menu.configure(state=state)
+        self.library_menu.configure(state=state)
+        self.imdb_radio.configure(state=state)
+        self.letterboxd_radio.configure(state=state)
+        self.movie_checkbox.configure(state=state)
+        self.tv_series_checkbox.configure(state=state)
+        self.tv_mini_series_checkbox.configure(state=state)
+        self.tv_movie_checkbox.configure(state=state)
+        self.login_button.configure(state=state)
+    
     def on_server_selection_change(self, *args):
         selected_server = self.server_var.get()
         # Skip if this server's libraries have already been loaded or if it's a placeholder value
@@ -167,32 +182,11 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
 
 
     def login_to_plex(self):
-        # Call the new login method with the UI update callback
+        # Call the login method with the UI update callback
+        threading.Thread(target=self._login_to_plex_thread, daemon=True).start()
+                
+    def _login_to_plex_thread(self):
         self.controller.login_and_fetch_servers(self.update_servers_ui)
-            
-    """     def radio_changed(self):
-            # Update UI based on radio button selection
-            source = self.radio_value.get()  # Get the current value of the radio button
-            if source == "IMDb":
-                # If IMDb is selected, enable all checkboxes and check them
-                self.movie_checkbox.configure(state="normal")
-                self.movie_var.set(True)
-                self.tv_series_checkbox.configure(state="normal")
-                self.tv_series_var.set(True) 
-                self.tv_mini_series_checkbox.configure(state="normal")
-                self.tv_mini_series_var.set(True)
-                self.tv_movie_checkbox.configure(state="normal")
-                self.tv_movie_var.set(True)
-            elif source == "Letterboxd":
-                # If Letterboxd is selected, enable only the Movie checkbox and disable the others
-                self.movie_checkbox.configure(state="normal")
-                # Disable and uncheck the other checkboxes
-                self.tv_series_checkbox.configure(state="disabled")
-                self.tv_series_var.set(False)
-                self.tv_mini_series_checkbox.configure(state="disabled")
-                self.tv_mini_series_var.set(False)
-                self.tv_movie_checkbox.configure(state="disabled")
-                self.tv_movie_var.set(False) """
 
     def log_message(self, message):
         # Update the log label with the new message
