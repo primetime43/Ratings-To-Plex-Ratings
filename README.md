@@ -10,6 +10,9 @@
 
 This application is designed to help you import your IMDb/Letterboxd ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb/Letterboxd ratings.
 
+v2.0.0 (Uses customtkinter instead of PySimpleGUI UI) <br>
+![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/3ae89679-1e61-4cf1-9b33-1eba558162e4)
+
 v1.2 <br>
 ![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/b74b5ecf-84a3-4a7d-96be-3fd8e6ff66b5)
 
@@ -38,7 +41,7 @@ The application logs all the operations it performs, which includes connecting t
 
 ## **Command for creating an exe out of the python file**
 ```
-pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
+pyinstaller --onefile --noconsole RatingsToPlexRatingsGUI.py
 ```
 
 ## **Exporting Your IMDb Ratings:**
@@ -52,4 +55,4 @@ pyinstaller --onefile --noconsole "Ratings To Plex Ratings.py"
 2. Once exported, use the ratings.csv file in that zip file in the program to update the ratings.
 
 ## **Requirements:**
-- Python 3.10
+- Python 3.10+
