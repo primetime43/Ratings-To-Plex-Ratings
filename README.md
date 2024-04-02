@@ -6,7 +6,7 @@
 - [Exporting Your Letterboxd Ratings](#exporting-your-letterboxd-ratings)
 - [Requirements](#requirements)
 
-# **IMDb Ratings To Plex Ratings**
+# **IMDb & Letterboxd Ratings To Plex Ratings**
 
 This application is designed to help you import your IMDb/Letterboxd ratings from an exported CSV file and update your Plex library movie ratings to match the IMDb/Letterboxd ratings.
 
