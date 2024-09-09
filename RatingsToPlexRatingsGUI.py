@@ -6,7 +6,7 @@ from tkinter import filedialog, scrolledtext
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 
 # Set the version number
-VERSION = '2.0.0'
+VERSION = '2.1.0'
 
 class IMDbRatingsToPlexRatingsApp(ctk.CTk):
     def __init__(self):
