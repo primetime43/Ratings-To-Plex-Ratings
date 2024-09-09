@@ -168,6 +168,12 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             self.after(0, self._set_ui_state, 'normal')
             return
 
+        # Determine the source (IMDb or Letterboxd)
+        if self.radio_value.get() == "IMDb":
+            self.log_message("Starting update from IMDb...")
+        elif self.radio_value.get() == "Letterboxd":
+            self.log_message("Starting update from Letterboxd...")
+
         values = {
             "-IMDB-": self.radio_value.get() == "IMDb",
             "-LETTERBOXD-": self.radio_value.get() == "Letterboxd",
@@ -177,8 +183,10 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-TVMOVIE-": self.tv_movie_var.get()
         }
 
+        # Call controller to update ratings and pass the log_message function to log each movie update
         self.controller.update_ratings(filepath, selected_library, values)
-        # re-enable the UI elements on the main thread
+
+        # Re-enable the UI elements on the main thread
         self.after(0, self._set_ui_state, 'normal')
 
     def log_message(self, message):
