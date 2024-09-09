@@ -111,6 +111,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         filepath = self.selected_file_path
         if not filepath or selected_library == "Select a library":
             self.log_message("Please select a file and a library first.")
+            # Ensure the UI elements are re-enabled even when returning early
+            self.after(0, self._set_ui_state, 'normal')
             return
 
         values = {
