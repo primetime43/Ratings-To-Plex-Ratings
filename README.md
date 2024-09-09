@@ -10,6 +10,9 @@
 
 Ratings-To-Plex is a desktop application that allows you to easily sync and transfer your IMDb and Letterboxd ratings to your Plex Media Server. This tool automates the process of updating movie ratings in your Plex libraries, providing a seamless way to ensure that your Plex media collection reflects your ratings from IMDb and Letterboxd.
 
+<details>
+  <summary>Click to view screenshots of the program</summary>
+  
 v2.0.0 (Uses customtkinter instead of PySimpleGUI UI) <br>
 ![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/3ae89679-1e61-4cf1-9b33-1eba558162e4)
 
@@ -18,6 +21,7 @@ v1.2 <br>
 
 v1.1 <br>
 ![image](https://github.com/primetime43/Ratings-To-Plex-Ratings/assets/12754111/453b78ab-2b90-4368-a796-feb97d8548be)
+</details>
 
 ## **How it works**
 
