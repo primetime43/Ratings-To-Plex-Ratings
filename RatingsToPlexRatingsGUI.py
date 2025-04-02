@@ -2,7 +2,7 @@ import customtkinter as ctk
 import threading
 import tkinter as tk
 from tkinter import StringVar
-from tkinter import filedialog, scrolledtext
+from tkinter import filedialog, scrolledtext, messagebox
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 
 # Set the version number
@@ -43,6 +43,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         
         # Checkbox for marking watched status
         self.mark_watched_var = tk.BooleanVar(value=False)
+        # Add a trace callback to show an alert when checked
+        self.mark_watched_var.trace_add("write", self.on_mark_watched_change)
 
         # Create widgets
         self.setup_ui()
@@ -132,6 +134,11 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             borderwidth=0,  # Removes the border to blend with customtkinter
         )
         self.log_textbox.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+    def on_mark_watched_change(self, *args):
+        if self.mark_watched_var.get():
+            messagebox.showwarning("WARNING - Mark as Watched Enabled",
+                                "When enabled, any title that has its rating imported will be marked as watched. This could mean items you've not completely watched will be marked as watched. Use with caution.")
 
     def select_file(self):
         self.selected_file_path = filedialog.askopenfilename(
