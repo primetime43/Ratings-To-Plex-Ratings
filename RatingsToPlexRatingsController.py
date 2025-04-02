@@ -161,11 +161,24 @@ class RatingsToPlexRatingsController:
                 found_movie.rate(rating=plex_rating)
                 message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
                 logger.info(message)
-                self.log_message(message, log_filename)  # Send the message to both log file and UI log box
+                self.log_message(message, log_filename)  # Log to both file and UI
+
+                # Mark as watched if the option is enabled
+                if values.get("-WATCHED-", False):
+                    try:
+                        found_movie.markWatched()  # mark as watched
+                        watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                        logger.info(watched_msg)
+                        self.log_message(watched_msg, log_filename)
+                    except Exception as e:
+                        error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                        logger.error(error_msg)
+                        self.log_message(error_msg, log_filename)
+
                 total_updated_movies += 1
             total_movies += 1
 
-        message = f"Successfully updated {total_updated_movies} out of {total_movies} movies"
+        message = f"Successfully updated {total_updated_movies} out of {total_movies}"
         logger.info(message)
         self.log_message(message, log_filename)  # Log success message to UI
         return True
@@ -196,13 +209,26 @@ class RatingsToPlexRatingsController:
                     found_movie.rate(rating=plex_rating)
                     message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
                     logger.info(message)
-                    self.log_message(message, log_filename)  # Log both to file and UI
+                    self.log_message(message, log_filename)  # Log to both file and UI
+
+                    # Mark as watched if the option is enabled
+                    if values.get("-WATCHED-", False):
+                        try:
+                            found_movie.markWatched()  # mark as watched
+                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                            logger.info(watched_msg)
+                            self.log_message(watched_msg, log_filename)
+                        except Exception as e:
+                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                            logger.error(error_msg)
+                            self.log_message(error_msg, log_filename)
+
                     total_updated_movies += 1
             except Exception as e:
                 logger.error('Error processing "%s (%s)": %s. Skipping.', name, year, e)
             total_movies += 1
 
-        message = f"Successfully updated {total_updated_movies} out of {total_movies} movies"
+        message = f"Successfully updated {total_updated_movies} out of {total_movies}"
         logger.info(message)
         self.log_message(message, log_filename)  # Log success message to UI
         return True

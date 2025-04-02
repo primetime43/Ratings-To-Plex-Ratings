@@ -2,11 +2,11 @@ import customtkinter as ctk
 import threading
 import tkinter as tk
 from tkinter import StringVar
-from tkinter import filedialog, scrolledtext
+from tkinter import filedialog, scrolledtext, messagebox
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 
 # Set the version number
-VERSION = '2.1.0'
+VERSION = '2.1.1'
 
 class IMDbRatingsToPlexRatingsApp(ctk.CTk):
     def __init__(self):
@@ -40,6 +40,11 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_series_var = tk.BooleanVar(value=True)
         self.tv_mini_series_var = tk.BooleanVar(value=True)
         self.tv_movie_var = tk.BooleanVar(value=True)
+        
+        # Checkbox for marking watched status
+        self.mark_watched_var = tk.BooleanVar(value=False)
+        # Add a trace callback to show an alert when checked
+        self.mark_watched_var.trace_add("write", self.on_mark_watched_change)
 
         # Create widgets
         self.setup_ui()
@@ -102,6 +107,14 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_movie_checkbox = ctk.CTkCheckBox(
             self.checkbox_frame, text="TV Movie", variable=self.tv_movie_var)
         self.tv_movie_checkbox.grid(row=0, column=3, padx=10)
+        
+        # Checkbox for marking watched status
+        self.watched_checkbox = ctk.CTkCheckBox(
+            self,
+            text="Mark as watched if rating is imported",
+            variable=self.mark_watched_var
+        )
+        self.watched_checkbox.pack(pady=10)
 
         # Update libraries button setup
         self.startUpdate_button = ctk.CTkButton(
@@ -121,6 +134,11 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             borderwidth=0,  # Removes the border to blend with customtkinter
         )
         self.log_textbox.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+    def on_mark_watched_change(self, *args):
+        if self.mark_watched_var.get():
+            messagebox.showwarning("WARNING - Mark as Watched Enabled",
+                                "When enabled, any title that has its rating imported will be marked as watched. This could mean items you've not completely watched will be marked as watched. Use with caution.")
 
     def select_file(self):
         self.selected_file_path = filedialog.askopenfilename(
@@ -180,7 +198,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-MOVIE-": self.movie_var.get(),
             "-TVSERIES-": self.tv_series_var.get(),
             "-TVMINISERIES-": self.tv_mini_series_var.get(),
-            "-TVMOVIE-": self.tv_movie_var.get()
+            "-TVMOVIE-": self.tv_movie_var.get(),
+            "-WATCHED-": self.mark_watched_var.get()
         }
 
         # Call controller to update ratings and pass the log_message function to log each movie update
