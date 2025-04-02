@@ -40,6 +40,9 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_series_var = tk.BooleanVar(value=True)
         self.tv_mini_series_var = tk.BooleanVar(value=True)
         self.tv_movie_var = tk.BooleanVar(value=True)
+        
+        # Checkbox for marking watched status
+        self.mark_watched_var = tk.BooleanVar(value=False)
 
         # Create widgets
         self.setup_ui()
@@ -102,6 +105,14 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_movie_checkbox = ctk.CTkCheckBox(
             self.checkbox_frame, text="TV Movie", variable=self.tv_movie_var)
         self.tv_movie_checkbox.grid(row=0, column=3, padx=10)
+        
+        # Checkbox for marking watched status
+        self.watched_checkbox = ctk.CTkCheckBox(
+            self,
+            text="Mark as watched if rating is imported",
+            variable=self.mark_watched_var
+        )
+        self.watched_checkbox.pack(pady=10)
 
         # Update libraries button setup
         self.startUpdate_button = ctk.CTkButton(
@@ -180,7 +191,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-MOVIE-": self.movie_var.get(),
             "-TVSERIES-": self.tv_series_var.get(),
             "-TVMINISERIES-": self.tv_mini_series_var.get(),
-            "-TVMOVIE-": self.tv_movie_var.get()
+            "-TVMOVIE-": self.tv_movie_var.get(),
+            "-WATCHED-": self.mark_watched_var.get()
         }
 
         # Call controller to update ratings and pass the log_message function to log each movie update
