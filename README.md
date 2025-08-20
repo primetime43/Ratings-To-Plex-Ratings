@@ -13,6 +13,9 @@ Ratings-To-Plex is a desktop application that allows you to easily sync and tran
 <details>
   <summary>Click to view screenshots of the program</summary> <br>
 
+v2.2.0 <br>
+![image](https://github.com/user-attachments/assets/baa0ee3f-345b-4c26-bd9b-7c7fb89ded95)
+
 v2.1.0 <br>
 ![image](https://github.com/user-attachments/assets/4299c0f8-d424-4cce-9673-94a5fa85faaa)
 
