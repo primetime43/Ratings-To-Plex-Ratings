@@ -154,9 +154,17 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         if selected_server == "Select a server":
             self.log_message("Please select a valid server.")
         else:
-            self.log_message(f"Server selected: {selected_server}")
-            libraries = self.controller.get_libraries(selected_server)
+            self.log_message(f"Server selected: {selected_server} (loading libraries...)")
+            # Set a temporary placeholder while loading
+            self.library_menu.configure(values=["Loading..."])
+            # Fetch libraries asynchronously to avoid UI freeze
+            self.controller.get_libraries_async(selected_server, self._on_libraries_loaded)
+
+    def _on_libraries_loaded(self, libraries):
+        # Ensure UI updates happen in main thread
+        def _update():
             self.update_libraries_dropdown(libraries)
+        self.after(0, _update)
 
     def on_library_selection_change(self, *args):
         selected_library = self.library_var.get()
