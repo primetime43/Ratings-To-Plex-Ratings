@@ -4,7 +4,8 @@ import logging
 import threading
 import time
 import webbrowser
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Dict
+from pathlib import Path
 from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 
 # Configure logging
@@ -178,9 +179,9 @@ class RatingsToPlexRatingsController:
             with open(filepath, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 if values['-IMDB-']:
-                    return self.update_ratings_from_imdb(csv_reader, library_section, values, log_filename)
+                    return self.update_ratings_from_imdb(csv_reader, library_section, values, log_filename, filepath)
                 elif values['-LETTERBOXD-']:
-                    return self.update_ratings_from_letterboxd(csv_reader, library_section, values, log_filename)
+                    return self.update_ratings_from_letterboxd(csv_reader, library_section, values, log_filename, filepath)
         except FileNotFoundError:
             logger.error("CSV file not found: %s", filepath)
             self.log_message('Error: File not found', log_filename)
@@ -190,10 +191,11 @@ class RatingsToPlexRatingsController:
             self.log_message(f'Error processing CSV: {e}', log_filename)
             return False
 
-    def update_ratings_from_imdb(self, csv_reader, library_section, values, log_filename):
+    def update_ratings_from_imdb(self, csv_reader, library_section, values, log_filename, source_filepath):
         selected_media_types = self._get_selected_media_types(values)
         total_movies = 0
         total_updated_movies = 0
+        failures: List[Dict[str, str]] = []
         logger.info("Updating IMDb ratings")
         self.log_message("Updating IMDb ratings", log_filename)
         all_items = library_section.all()
@@ -215,17 +217,42 @@ class RatingsToPlexRatingsController:
 
         for movie in csv_reader:
             if movie['Title Type'] not in selected_media_types:
-                continue
+                continue  # user chose not to process this type
             imdb_id = movie.get('Const')
             if not imdb_id:
+                failures.append({
+                    'Title': movie.get('Title', ''),
+                    'Year': movie.get('Year', ''),
+                    'IMDbID': '',
+                    'Reason': 'Missing IMDb ID (Const)',
+                    'YourRating': movie.get('Your Rating', ''),
+                    'TitleType': movie.get('Title Type', '')
+                })
                 continue
             try:
                 your_rating = float(movie.get('Your Rating', '').strip())
-            except ValueError:
+            except (ValueError, AttributeError):
+                failures.append({
+                    'Title': movie.get('Title', ''),
+                    'Year': movie.get('Year', ''),
+                    'IMDbID': imdb_id,
+                    'Reason': 'Invalid rating value',
+                    'YourRating': movie.get('Your Rating', ''),
+                    'TitleType': movie.get('Title Type', '')
+                })
                 continue
             plex_rating = your_rating
             found_movie = guidLookup.get(f'imdb://{imdb_id}')
-            if found_movie:
+            if not found_movie:
+                failures.append({
+                    'Title': movie.get('Title', ''),
+                    'Year': movie.get('Year', ''),
+                    'IMDbID': imdb_id,
+                    'Reason': 'Not found in Plex by GUID',
+                    'YourRating': movie.get('Your Rating', ''),
+                    'TitleType': movie.get('Title Type', '')
+                })
+            else:
                 expected_types = imdb_type_to_plex_types(movie['Title Type'])
                 item_type = getattr(found_movie, 'type', None)
                 if expected_types and item_type not in expected_types:
@@ -233,31 +260,51 @@ class RatingsToPlexRatingsController:
                                 f'type mismatch (CSV: {movie["Title Type"]}, Plex: {item_type})')
                     logger.debug(skip_msg)
                     self.log_message(skip_msg, log_filename)
+                    failures.append({
+                        'Title': movie.get('Title', ''),
+                        'Year': movie.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': f'Type mismatch (Plex={item_type})',
+                        'YourRating': movie.get('Your Rating', ''),
+                        'TitleType': movie.get('Title Type', '')
+                    })
                 else:
-                    found_movie.rate(rating=plex_rating)
-                    message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
-                    logger.info(message)
-                    self.log_message(message, log_filename)
-                    if values.get("-WATCHED-", False):
-                        try:
-                            found_movie.markWatched()
-                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                            logger.info(watched_msg)
-                            self.log_message(watched_msg, log_filename)
-                        except Exception as e:
-                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                            logger.error(error_msg)
-                            self.log_message(error_msg, log_filename)
-                    total_updated_movies += 1
+                    try:
+                        found_movie.rate(rating=plex_rating)
+                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        logger.info(message)
+                        self.log_message(message, log_filename)
+                        if values.get("-WATCHED-", False):
+                            try:
+                                found_movie.markWatched()
+                                watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                                logger.info(watched_msg)
+                                self.log_message(watched_msg, log_filename)
+                            except Exception as e:
+                                error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                                logger.error(error_msg)
+                                self.log_message(error_msg, log_filename)
+                        total_updated_movies += 1
+                    except Exception as e:
+                        failures.append({
+                            'Title': getattr(found_movie, 'title', ''),
+                            'Year': getattr(found_movie, 'year', ''),
+                            'IMDbID': imdb_id,
+                            'Reason': f'Rate failed: {e}',
+                            'YourRating': movie.get('Your Rating', ''),
+                            'TitleType': movie.get('Title Type', '')
+                        })
             total_movies += 1
         message = f"Successfully updated {total_updated_movies} out of {total_movies}"
         logger.info(message)
         self.log_message(message, log_filename)
+        self._export_failures_if_any(failures, source_filepath, 'imdb', log_filename)
         return True
 
-    def update_ratings_from_letterboxd(self, csv_reader, library_section, values, log_filename):
+    def update_ratings_from_letterboxd(self, csv_reader, library_section, values, log_filename, source_filepath):
         total_movies = 0
         total_updated_movies = 0
+        failures: List[Dict[str, str]] = []
         logger.info("Updating Letterboxd ratings")
         library_movies = {}
         for item in library_section.all():
@@ -267,37 +314,68 @@ class RatingsToPlexRatingsController:
             library_movies.setdefault(key, item)
         for movie in csv_reader:
             try:
-                name = movie.get('Name', '').strip()
-                year = movie.get('Year', '').strip()
-                rating_str = movie.get('Rating', '').strip()
+                name = (movie.get('Name') or '').strip()
+                year = (movie.get('Year') or '').strip()
+                rating_str = (movie.get('Rating') or '').strip()
                 if not name or not year or not rating_str:
+                    failures.append({
+                        'Title': name,
+                        'Year': year,
+                        'Reason': 'Missing required field (Name/Year/Rating)',
+                        'YourRating': rating_str
+                    })
                     continue
-                your_rating = float(rating_str) * 2
+                try:
+                    your_rating = float(rating_str) * 2
+                except ValueError:
+                    failures.append({
+                        'Title': name,
+                        'Year': year,
+                        'Reason': 'Invalid rating value',
+                        'YourRating': rating_str
+                    })
+                    continue
                 plex_rating = your_rating
                 search_key = (name.lower(), year)
                 found_movie = library_movies.get(search_key)
-                if found_movie:
-                    found_movie.rate(rating=plex_rating)
-                    message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
-                    logger.info(message)
-                    self.log_message(message, log_filename)
-                    if values.get("-WATCHED-", False):
-                        try:
-                            found_movie.markWatched()
-                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                            logger.info(watched_msg)
-                            self.log_message(watched_msg, log_filename)
-                        except Exception as e:
-                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                            logger.error(error_msg)
-                            self.log_message(error_msg, log_filename)
-                    total_updated_movies += 1
-            except Exception as e:
-                logger.error('Error processing "%s (%s)": %s. Skipping.', name, year, e)
+                if not found_movie:
+                    failures.append({
+                        'Title': name,
+                        'Year': year,
+                        'Reason': 'Not found in Plex (title/year match failed)',
+                        'YourRating': rating_str
+                    })
+                else:
+                    try:
+                        found_movie.rate(rating=plex_rating)
+                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        logger.info(message)
+                        self.log_message(message, log_filename)
+                        if values.get("-WATCHED-", False):
+                            try:
+                                found_movie.markWatched()
+                                watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                                logger.info(watched_msg)
+                                self.log_message(watched_msg, log_filename)
+                            except Exception as e:
+                                error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                                logger.error(error_msg)
+                                self.log_message(error_msg, log_filename)
+                        total_updated_movies += 1
+                    except Exception as e:
+                        failures.append({
+                            'Title': name,
+                            'Year': year,
+                            'Reason': f'Rate failed: {e}',
+                            'YourRating': rating_str
+                        })
+            except Exception as e:  # pragma: no cover
+                logger.error('Error processing row: %s', e)
             total_movies += 1
         message = f"Successfully updated {total_updated_movies} out of {total_movies}"
         logger.info(message)
         self.log_message(message, log_filename)
+        self._export_failures_if_any(failures, source_filepath, 'letterboxd', log_filename)
         return True
 
     def _get_selected_media_types(self, values):
@@ -316,4 +394,26 @@ class RatingsToPlexRatingsController:
             selected_media_types.append('TV Episode')
         logger.debug("Selected media types: %s", selected_media_types)
         return selected_media_types
+
+    # --------------------- Failure Export Helper --------------------- #
+    def _export_failures_if_any(self, failures: List[Dict[str, str]], source_filepath: str, source_name: str, log_filename: str):
+        if not failures:
+            self.log_message("No failed or unmatched items to export.", log_filename)
+            return
+        try:
+            ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            base = Path(source_filepath).stem
+            out_path = Path.cwd() / f"Unmatched_{source_name}_{base}_{ts}.csv"
+            # Determine headers union for robustness
+            headers = set()
+            for f in failures:
+                headers.update(f.keys())
+            headers = list(headers)
+            with open(out_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(failures)
+            self.log_message(f"Exported {len(failures)} unmatched/failed items to {out_path}", log_filename)
+        except Exception as e:
+            self.log_message(f"Failed to export unmatched items CSV: {e}", log_filename)
 
