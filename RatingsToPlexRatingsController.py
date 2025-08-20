@@ -217,11 +217,26 @@ class RatingsToPlexRatingsController:
             logger.error("Not connected to a Plex server")
             self.log_message('Error: Not connected to a Plex server', log_filename)
             return False
-        library_section = self.plex_connection.server.library.section(selected_library)
-        if not library_section:
-            logger.error("Library section %s not found", selected_library)
-            self.log_message(f'Error: Library section {selected_library} not found', log_filename)
-            return False
+        all_libs_mode = values.get('-ALLLIBS-', False)
+        library_section = None
+        if all_libs_mode:
+            try:
+                # Collect all movie/show libraries (filter to those providing rating capable media)
+                sections = [s for s in self.plex_connection.server.library.sections() if getattr(s, 'type', '') in ('movie', 'show')]
+                if not sections:
+                    self.log_message('Error: No movie/show libraries found for cross-library update.', log_filename)
+                    return False
+                library_section = sections[0]  # Use first for fetchItem purposes; searches will specify section
+                self.log_message(f"Cross-library mode enabled: {len(sections)} libraries will be searched.", log_filename)
+            except Exception as e:
+                self.log_message(f'Error enumerating libraries: {e}', log_filename)
+                return False
+        else:
+            library_section = self.plex_connection.server.library.section(selected_library)
+            if not library_section:
+                logger.error("Library section %s not found", selected_library)
+                self.log_message(f'Error: Library section {selected_library} not found', log_filename)
+                return False
         dry_run = values.get('-DRYRUN-', False)
         if dry_run:
             self.log_message('DRY RUN ENABLED: No changes will be written to Plex.', log_filename)
@@ -274,14 +289,29 @@ class RatingsToPlexRatingsController:
         guidLookup = {}
         if not use_lazy:
             start = time.perf_counter()
-            all_items = library_section.all()
-            for item in all_items:
-                if getattr(item, 'guid', None):
-                    guidLookup[item.guid] = item
-                for guid in getattr(item, 'guids', []) or []:
-                    guidLookup[guid.id] = item
+            # If cross-library mode, aggregate all sections
+            if values.get('-ALLLIBS-', False) and self.plex_connection and self.plex_connection.server:
+                try:
+                    sections = [s for s in self.plex_connection.server.library.sections() if getattr(s, 'type', '') in ('movie', 'show')]
+                except Exception as e:  # pragma: no cover
+                    sections = [library_section]
+                    logger.error('Failed listing sections for cross-library mode: %s', e)
+            else:
+                sections = [library_section]
+            count_sections = len(sections)
+            total_items_scanned = 0
+            for sec in sections:
+                try:
+                    for item in sec.all():
+                        total_items_scanned += 1
+                        if getattr(item, 'guid', None):
+                            guidLookup[item.guid] = item
+                        for guid in getattr(item, 'guids', []) or []:
+                            guidLookup[guid.id] = item
+                except Exception as e:  # pragma: no cover
+                    logger.error('Failed scanning section %s: %s', getattr(sec, 'title', '?'), e)
             duration = time.perf_counter() - start
-            logger.debug("Built full GUID index (%d entries) in %.2fs", len(guidLookup), duration)
+            logger.debug("Built full GUID index (%d entries from %d sections; scanned %d items) in %.2fs", len(guidLookup), count_sections, total_items_scanned, duration)
 
         preview_samples = []  # collect up to N previews (sequential lazy path)
         PREVIEW_LIMIT = 15
@@ -456,12 +486,22 @@ class RatingsToPlexRatingsController:
                 plex_rating = your_rating
                 found_movie = None
                 if use_lazy:
-                    try:
-                        results = library_section.search(guid=f'imdb://{imdb_id}')
-                        if results:
-                            found_movie = results[0]
-                    except Exception as e:  # pragma: no cover
-                        logger.debug("Lazy search error for %s: %s", imdb_id, e)
+                    if values.get('-ALLLIBS-', False) and self.plex_connection and self.plex_connection.server:
+                        try:
+                            sections = [s for s in self.plex_connection.server.library.sections() if getattr(s, 'type', '') in ('movie', 'show')]
+                        except Exception as e:  # pragma: no cover
+                            sections = [library_section]
+                            logger.debug('Section listing failed (lazy cross-lib): %s', e)
+                    else:
+                        sections = [library_section]
+                    for sec in sections:
+                        try:
+                            results = sec.search(guid=f'imdb://{imdb_id}')
+                            if results:
+                                found_movie = results[0]
+                                break
+                        except Exception as e:  # pragma: no cover
+                            logger.debug("Lazy search error for %s in %s: %s", imdb_id, getattr(sec, 'title', '?'), e)
                 else:
                     found_movie = guidLookup.get(f'imdb://{imdb_id}')
                 if not found_movie:
@@ -588,11 +628,23 @@ class RatingsToPlexRatingsController:
         unchanged_skipped = 0
         logger.info("Updating Letterboxd ratings")
         library_movies = {}
-        for item in library_section.all():
-            if getattr(item, 'type', None) != 'movie':
-                continue
-            key = (item.title.lower().strip(), str(item.year))
-            library_movies.setdefault(key, item)
+        if values.get('-ALLLIBS-', False) and self.plex_connection and self.plex_connection.server:
+            try:
+                sections = [s for s in self.plex_connection.server.library.sections() if getattr(s, 'type', '') == 'movie']
+            except Exception as e:  # pragma: no cover
+                sections = [library_section]
+                logger.error('Failed listing sections for Letterboxd cross-library: %s', e)
+        else:
+            sections = [library_section]
+        for sec in sections:
+            try:
+                for item in sec.all():
+                    if getattr(item, 'type', None) != 'movie':
+                        continue
+                    key = (item.title.lower().strip(), str(item.year))
+                    library_movies.setdefault(key, item)
+            except Exception as e:  # pragma: no cover
+                logger.error('Failed scanning section %s for Letterboxd: %s', getattr(sec, 'title', '?'), e)
         for movie in csv_reader:
             try:
                 name = (movie.get('Name') or '').strip()
