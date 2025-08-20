@@ -38,13 +38,49 @@ Here's a brief rundown of the steps:
 
 3. **Select a library**: Select the library to retrieve and update the ratings for this library.
 
-4. **Select a CSV file**: You can choose a CSV file exported from IMDb/Letterboxd containing your movie ratings. The application reads the file and prepares to update the ratings on your Plex server.
+4. **Select a CSV file**: Choose a CSV exported from IMDb (Your Ratings export) or Letterboxd (Data export → ratings.csv). The application parses it and stages rating updates.
 
-5. **Update Plex Movie Ratings**: Clicking this button starts the process of updating the movie ratings on the Plex server. The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. 
+5. **Choose media types (IMDb only)**: Toggle which IMDb "Title Type" entries to process: Movie, TV Series, TV Mini Series, TV Movie. (Letterboxd export is movies only.)
+6. **Optional – Mark as watched**: If enabled, any item whose rating is set/updated will be marked watched. (Use cautiously—partial watches will become fully watched.)
+7. **Optional – Force overwrite ratings**: If enabled, the tool will always reapply the rating even if Plex already shows the same value (bypasses the unchanged skip logic; useful if you cleared a rating in Plex and Plex still returns a stale value through the API).
+8. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
+9. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
 
-Please note that the rating scale on Plex is different from IMDb. IMDb uses a scale of 1-10 while Plex uses a scale of 1-5. This script automatically adjusts the ratings from IMDb's scale to Plex's scale.
+### Rating scale handling
+
+- Plex stores user ratings on a 1–10 scale.
+- IMDb ratings are already 1–10, so they are applied directly with no conversion.
+- Letterboxd ratings are 0.5–5; the tool multiplies by 2 to map them onto Plex's 1–10 scale (e.g. 4.0 → 8, 3.5 → 7).
+- Unchanged ratings are skipped to avoid unnecessary Plex API writes (unless *Force overwrite ratings* is enabled).
+
+### Star ↔ 1–10 Mapping
+| Plex UI Stars | Stored Value |
+|---------------|--------------|
+| 0.5           | 1            |
+| 1.0           | 2            |
+| 1.5           | 3            |
+| 2.0           | 4            |
+| 2.5           | 5            |
+| 3.0           | 6            |
+| 3.5           | 7            |
+| 4.0           | 8            |
+| 4.5           | 9            |
+| 5.0           | 10           |
+
+### Dual-Form Logging
+When a rating is updated the log shows both numeric (1–10) and star forms (e.g. `Updated Plex rating for "Inception (2010)" to 8 (4.0★)`). This is informational only; no rounding is applied—IMDb ratings are written exactly as provided.
 
 The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. If an error occurs during the login or updating process, the application will display an error message.
+
+### Dry Run Mode Details
+When the "Dry run" checkbox is selected:
+- No ratings are written and nothing is marked watched.
+- All other matching / filtering logic still runs so counts are accurate.
+- A subset of prospective changes (capped to avoid spamming) is logged with a `[DRY RUN]` prefix.
+- Failures/unmatched export CSV is suppressed (so you don’t clutter your folder with test files).
+- Final summary line shows `DRY RUN:` instead of `Successfully updated`.
+
+Use a dry run first after large CSV exports or when tuning media type filters to ensure the updates match expectations.
 
 ## **Command for creating an exe out of the python file**
 ```
@@ -63,3 +99,13 @@ pyinstaller --onefile --noconsole RatingsToPlexRatingsGUI.py
 
 ## **Requirements:**
 - Python 3.10+
+- Packages: `customtkinter`, `plexapi`
+
+Quick install (Windows batch provided):
+```
+install_requirements.bat
+```
+or manually:
+```
+pip install customtkinter plexapi
+```
