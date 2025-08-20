@@ -65,22 +65,24 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
 
         # General Tab
         tab_general.grid_columnconfigure(0, weight=1)
-        header = ctk.CTkLabel(tab_general, text="IMDb → Plex Ratings", font=("Segoe UI", 16, "bold"))
-        header.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
-        ver = ctk.CTkLabel(tab_general, text=f"v{__version__}", font=("Segoe UI", 12))
-        ver.grid(row=0, column=0, sticky="e", padx=8, pady=(8, 2))
-        theme_row = ctk.CTkFrame(tab_general)
-        theme_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(4, 8))
-        theme_row.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(theme_row, text="Theme:").grid(row=0, column=0, padx=(0, 6))
-        self.theme_menu = ctk.CTkOptionMenu(theme_row, values=["Dark", "Light", "System"], variable=self.theme_var, width=120)
+        self.header_label = ctk.CTkLabel(tab_general, text="IMDb → Plex Ratings", font=("Segoe UI", 16, "bold"))
+        self.header_label.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
+        self.ver = ctk.CTkLabel(tab_general, text=f"v{__version__}", font=("Segoe UI", 12))
+        self.ver.grid(row=0, column=0, sticky="e", padx=8, pady=(8, 2))
+        self.theme_row = ctk.CTkFrame(tab_general)
+        self.theme_row.grid(row=1, column=0, sticky="ew", padx=8, pady=(4, 8))
+        self.theme_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(self.theme_row, text="Theme:").grid(row=0, column=0, padx=(0, 6))
+        self.theme_menu = ctk.CTkOptionMenu(self.theme_row, values=["Dark", "Light", "System"], variable=self.theme_var, width=120)
         self.theme_menu.grid(row=0, column=1, sticky="ew")
-        src_type_frame = ctk.CTkFrame(tab_general)
-        src_type_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
-        ctk.CTkLabel(src_type_frame, text="Source Type", font=("Segoe UI", 13, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
-        self.imdb_radio = ctk.CTkRadioButton(src_type_frame, text="IMDb", variable=self.radio_value, value="IMDb")
+        self.src_type_frame = ctk.CTkFrame(tab_general)
+        self.src_type_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
+        ctk.CTkLabel(self.src_type_frame, text="Source Type", font=("Segoe UI", 13, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
+
+
+        self.imdb_radio = ctk.CTkRadioButton(self.src_type_frame, text="IMDb", variable=self.radio_value, value="IMDb", command=self.update_header_label)
         self.imdb_radio.grid(row=1, column=0, padx=8, pady=2, sticky="w")
-        self.letterboxd_radio = ctk.CTkRadioButton(src_type_frame, text="Letterboxd", variable=self.radio_value, value="Letterboxd")
+        self.letterboxd_radio = ctk.CTkRadioButton(self.src_type_frame, text="Letterboxd", variable=self.radio_value, value="Letterboxd", command=self.update_header_label)
         self.letterboxd_radio.grid(row=1, column=1, padx=8, pady=2, sticky="w")
 
         # Login Tab
@@ -127,6 +129,15 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.force_overwrite_checkbox.grid(row=2, column=0, padx=8, pady=2, sticky="w")
         self.dry_run_checkbox = ctk.CTkCheckBox(tab_options, text="Dry run (preview only)", variable=self.dry_run_var)
         self.dry_run_checkbox.grid(row=3, column=0, padx=8, pady=(2, 8), sticky="w")
+
+    def update_header_label(self):
+        source = self.radio_value.get()
+        if source == "IMDb":
+            self.header_label.configure(text="IMDb → Plex Ratings")
+        elif source == "Letterboxd":
+            self.header_label.configure(text="Letterboxd → Plex Ratings")
+        else:
+            self.header_label.configure(text="→ Plex Ratings")
 
         # Action Bar
         self.action_frame = ctk.CTkFrame(self.left_panel)
