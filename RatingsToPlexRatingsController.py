@@ -4,15 +4,43 @@ import logging
 import threading
 import time
 import webbrowser
-from typing import Callable, List, Optional, Dict
+from typing import Callable, List, Optional, Dict, Tuple
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 from plexapi.myplex import MyPlexPinLogin, MyPlexAccount
 
-# Performance tuning constants
+# Performance & parallelism constants
 IMDB_LAZY_LOOKUP_THRESHOLD = 300  # If number of IMDb rows to process <= this, do per-guid lookup instead of full library scan
-GUID_CACHE_TTL_HOURS = 24  # Rebuild guid cache after this age
-RATING_WRITE_PAUSE_EVERY = 25  # After this many writes, pause briefly to avoid hammering Plex
-RATING_WRITE_PAUSE_SECONDS = 0.2
+PARALLEL_MIN_ITEMS = 600          # Activate parallel rating updates if >= this many IMDb rows (and not lazy)
+PARALLEL_WORKERS = 6              # Thread pool size for parallel updates
+MAX_WRITES_PER_SECOND = 0         # 0 => unlimited (disable limiter); tune if server errors appear
+
+
+class _RateLimiter:
+    """Simple moving-window rate limiter (thread-safe).
+
+    Ensures no more than max_per_second operations occur in any rolling 1s window.
+    Blocks (sleeping in small increments) until a slot is available.
+    """
+
+    def __init__(self, max_per_second: int):
+        self.max_per_second = max_per_second
+        self._timestamps = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self):  # pragma: no cover (timing based)
+        if self.max_per_second <= 0:
+            return  # unlimited
+        while True:
+            with self._lock:
+                now = time.perf_counter()
+                while self._timestamps and now - self._timestamps[0] > 1.0:
+                    self._timestamps.popleft()
+                if len(self._timestamps) < self.max_per_second:
+                    self._timestamps.append(now)
+                    return
+            time.sleep(0.01)
 
 # Configure logging
 logging.basicConfig(
@@ -117,7 +145,7 @@ class RatingsToPlexRatingsController:
         logger.info(message)
         if self.log_callback:
             self.log_callback(full_message)
-        # Ensure UTF-8 so rating star (★) does not raise Windows charmap errors
+    # Ensure UTF-8 so special characters in logs do not raise Windows charmap errors
         try:
             with open(log_filename, 'a', encoding='utf-8') as log_file:
                 log_file.write(full_message)
@@ -255,147 +283,275 @@ class RatingsToPlexRatingsController:
             duration = time.perf_counter() - start
             logger.debug("Built full GUID index (%d entries) in %.2fs", len(guidLookup), duration)
 
-        writes = 0
-        preview_samples = []  # collect up to N previews
+        preview_samples = []  # collect up to N previews (sequential lazy path)
         PREVIEW_LIMIT = 15
-        for movie in rows:
-            imdb_id = movie.get('Const')
-            if not imdb_id:
-                missing_id += 1
-                failures.append({
-                    'Title': movie.get('Title', ''),
-                    'Year': movie.get('Year', ''),
-                    'IMDbID': '',
-                    'Reason': 'Missing IMDb ID (Const)',
-                    'YourRating': movie.get('Your Rating', ''),
-                    'TitleType': movie.get('Title Type', '')
-                })
-                continue
-            rating_raw = movie.get('Your Rating', '')
-            try:
-                your_rating = float((rating_raw or '').strip())
-            except (ValueError, AttributeError):
-                invalid_rating += 1
-                failures.append({
-                    'Title': movie.get('Title', ''),
-                    'Year': movie.get('Year', ''),
-                    'IMDbID': imdb_id,
-                    'Reason': 'Invalid rating value',
-                    'YourRating': rating_raw,
-                    'TitleType': movie.get('Title Type', '')
-                })
-                continue
-            # Direct IMDb 1–10 rating application
-            plex_rating = your_rating
 
-            found_movie = None
-            if use_lazy:
-                try:
-                    results = library_section.search(guid=f'imdb://{imdb_id}')
-                    if results:
-                        found_movie = results[0]
-                except Exception as e:  # pragma: no cover
-                    logger.debug("Lazy search error for %s: %s", imdb_id, e)
-            else:
-                found_movie = guidLookup.get(f'imdb://{imdb_id}')
+        # Decide if we will use parallel processing (only for non-lazy, non-dry-run large batches)
+        use_parallel = (not dry_run and not use_lazy and total_movies >= PARALLEL_MIN_ITEMS)
+        if use_parallel:
+            self.log_message(f"Parallel IMDb update enabled: {total_movies} items, {PARALLEL_WORKERS} workers", log_filename)
 
-            if not found_movie:
-                not_found += 1
-                failures.append({
-                    'Title': movie.get('Title', ''),
-                    'Year': movie.get('Year', ''),
-                    'IMDbID': imdb_id,
-                    'Reason': 'Not found in Plex by GUID',
-                    'YourRating': rating_raw,
-                    'TitleType': movie.get('Title Type', '')
-                })
-                continue
-
-            expected_types = imdb_type_to_plex_types(movie['Title Type'])
-            item_type = getattr(found_movie, 'type', None)
-            if expected_types and item_type not in expected_types:
-                skip_msg = (f'Skipped "{found_movie.title} ({getattr(found_movie, "year", "?")})" - '
-                            f'type mismatch (CSV: {movie["Title Type"]}, Plex: {item_type})')
-                logger.debug(skip_msg)
-                self.log_message(skip_msg, log_filename)
-                type_mismatch += 1
-                failures.append({
-                    'Title': movie.get('Title', ''),
-                    'Year': movie.get('Year', ''),
-                    'IMDbID': imdb_id,
-                    'Reason': f'Type mismatch (Plex={item_type})',
-                    'YourRating': rating_raw,
-                    'TitleType': movie.get('Title Type', '')
-                })
-                continue
-
+        if use_parallel:
+            rate_limiter = _RateLimiter(MAX_WRITES_PER_SECOND)
             force_overwrite = values.get('-FORCEOVERWRITE-', False)
-            # Attempt to fetch a fresh copy to avoid stale cached userRating
-            if getattr(found_movie, 'ratingKey', None):
-                try:
-                    fresh = library_section.fetchItem(found_movie.ratingKey)
-                    if fresh:
-                        found_movie = fresh
-                except Exception as e:  # pragma: no cover
-                    logger.debug('fetchItem failed for %s: %s', imdb_id, e)
+            mark_watched = values.get('-WATCHED-', False)
+            lock = threading.Lock()
 
-            existing_rating = getattr(found_movie, 'userRating', None)
-            if not force_overwrite and existing_rating is not None:
+            def worker(movie_row) -> Tuple[Dict[str, int], Optional[Dict[str, str]]]:
+                local_counts = {
+                    'updated': 0,
+                    'missing_id': 0,
+                    'invalid_rating': 0,
+                    'not_found': 0,
+                    'type_mismatch': 0,
+                    'rate_failed': 0,
+                    'unchanged_skipped': 0
+                }
+                failure_entry = None
+                imdb_id = movie_row.get('Const')
+                if not imdb_id:
+                    local_counts['missing_id'] += 1
+                    failure_entry = {
+                        'Title': movie_row.get('Title', ''),
+                        'Year': movie_row.get('Year', ''),
+                        'IMDbID': '',
+                        'Reason': 'Missing IMDb ID (Const)',
+                        'YourRating': movie_row.get('Your Rating', ''),
+                        'TitleType': movie_row.get('Title Type', '')
+                    }
+                    return local_counts, failure_entry
+                rating_raw = movie_row.get('Your Rating', '')
                 try:
-                    existing_rating_float = float(existing_rating)
-                except Exception:
-                    existing_rating_float = existing_rating
-                logger.debug('Existing rating (fresh) for %s (%s): %s incoming: %s', found_movie.title, imdb_id, existing_rating_float, plex_rating)
-                if isinstance(existing_rating_float, (int, float)) and abs(existing_rating_float - plex_rating) < 0.01:
-                    unchanged_skipped += 1
-                    debug_msg = (f'Skipping unchanged rating for "{found_movie.title} ({getattr(found_movie, "year", "?")})" '
-                                 f'existing={existing_rating_float} incoming={plex_rating}')
-                    logger.debug(debug_msg)
-                    self.log_message(debug_msg, log_filename)
-                    continue
-
-            try:
-                if dry_run:
-                    star_form = plex_rating / 2.0
-                    preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
-                    if values.get("-WATCHED-", False):
-                        preview_entry += " and mark watched"
-                    preview_samples.append(preview_entry)
-                    self.log_message(preview_entry, log_filename)
-                    total_updated_movies += 1  # count as prospective update
-                else:
-                    found_movie.rate(rating=plex_rating)
-                    star_form = plex_rating / 2.0
-                    message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
-                    logger.info(message)
-                    self.log_message(message, log_filename)
-                    if values.get("-WATCHED-", False):
+                    your_rating = float((rating_raw or '').strip())
+                except (ValueError, AttributeError):
+                    local_counts['invalid_rating'] += 1
+                    failure_entry = {
+                        'Title': movie_row.get('Title', ''),
+                        'Year': movie_row.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': 'Invalid rating value',
+                        'YourRating': rating_raw,
+                        'TitleType': movie_row.get('Title Type', '')
+                    }
+                    return local_counts, failure_entry
+                plex_rating = your_rating
+                found = guidLookup.get(f'imdb://{imdb_id}')
+                if not found:
+                    local_counts['not_found'] += 1
+                    failure_entry = {
+                        'Title': movie_row.get('Title', ''),
+                        'Year': movie_row.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': 'Not found in Plex by GUID',
+                        'YourRating': rating_raw,
+                        'TitleType': movie_row.get('Title Type', '')
+                    }
+                    return local_counts, failure_entry
+                expected_types = imdb_type_to_plex_types(movie_row['Title Type'])
+                item_type = getattr(found, 'type', None)
+                if expected_types and item_type not in expected_types:
+                    local_counts['type_mismatch'] += 1
+                    failure_entry = {
+                        'Title': movie_row.get('Title', ''),
+                        'Year': movie_row.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': f'Type mismatch (Plex={item_type})',
+                        'YourRating': rating_raw,
+                        'TitleType': movie_row.get('Title Type', '')
+                    }
+                    return local_counts, failure_entry
+                # Fetch fresh for current userRating
+                if getattr(found, 'ratingKey', None):
+                    try:
+                        fresh = library_section.fetchItem(found.ratingKey)
+                        if fresh:
+                            found = fresh
+                    except Exception:
+                        pass
+                existing_rating = getattr(found, 'userRating', None)
+                if not force_overwrite and existing_rating is not None:
+                    try:
+                        existing_rating_float = float(existing_rating)
+                    except Exception:
+                        existing_rating_float = existing_rating
+                    if isinstance(existing_rating_float, (int, float)) and abs(existing_rating_float - plex_rating) < 0.01:
+                        local_counts['unchanged_skipped'] += 1
+                        return local_counts, None
+                try:
+                    rate_limiter.acquire()
+                    found.rate(rating=plex_rating)
+                    msg = f'Updated Plex rating for "{found.title} ({found.year})" to {plex_rating}'
+                    self.log_message(msg, log_filename)
+                    if mark_watched:
+                        rate_limiter.acquire()
                         try:
-                            found_movie.markWatched()
-                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                            logger.info(watched_msg)
-                            self.log_message(watched_msg, log_filename)
+                            found.markWatched()
+                            self.log_message(f'Marked "{found.title} ({found.year})" as watched', log_filename)
                         except Exception as e:
-                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                            logger.error(error_msg)
-                            self.log_message(error_msg, log_filename)
-                    total_updated_movies += 1
-                    writes += 1
-                    if writes % RATING_WRITE_PAUSE_EVERY == 0:
-                        time.sleep(RATING_WRITE_PAUSE_SECONDS)
-            except Exception as e:
-                rate_failed += 1
-                failures.append({
-                    'Title': getattr(found_movie, 'title', ''),
-                    'Year': getattr(found_movie, 'year', ''),
-                    'IMDbID': imdb_id,
-                    'Reason': f'Rate failed: {e}',
-                    'YourRating': rating_raw,
-                    'TitleType': movie.get('Title Type', '')
-                })
-            if dry_run and len(preview_samples) >= PREVIEW_LIMIT:
-                # Do not spam; continue counting but stop logging each
-                pass
+                            self.log_message(f'Error marking as watched for {found.title}: {e}', log_filename)
+                    local_counts['updated'] += 1
+                except Exception as e:
+                    local_counts['rate_failed'] += 1
+                    failure_entry = {
+                        'Title': getattr(found, 'title', ''),
+                        'Year': getattr(found, 'year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': f'Rate failed: {e}',
+                        'YourRating': rating_raw,
+                        'TitleType': movie_row.get('Title Type', '')
+                    }
+                return local_counts, failure_entry
+
+            aggregated = {
+                'updated': 0,
+                'missing_id': 0,
+                'invalid_rating': 0,
+                'not_found': 0,
+                'type_mismatch': 0,
+                'rate_failed': 0,
+                'unchanged_skipped': 0
+            }
+            with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+                for counts, failure in executor.map(worker, rows):
+                    for k, v in counts.items():
+                        aggregated[k] += v
+                    if failure:
+                        failures.append(failure)
+            total_updated_movies = aggregated['updated']
+            missing_id = aggregated['missing_id']
+            invalid_rating = aggregated['invalid_rating']
+            not_found = aggregated['not_found']
+            type_mismatch = aggregated['type_mismatch']
+            rate_failed = aggregated['rate_failed']
+            unchanged_skipped = aggregated['unchanged_skipped']
+        else:
+            # Existing sequential path (includes dry-run & lazy path)
+            for movie in rows:
+                imdb_id = movie.get('Const')
+                if not imdb_id:
+                    missing_id += 1
+                    failures.append({
+                        'Title': movie.get('Title', ''),
+                        'Year': movie.get('Year', ''),
+                        'IMDbID': '',
+                        'Reason': 'Missing IMDb ID (Const)',
+                        'YourRating': movie.get('Your Rating', ''),
+                        'TitleType': movie.get('Title Type', '')
+                    })
+                    continue
+                rating_raw = movie.get('Your Rating', '')
+                try:
+                    your_rating = float((rating_raw or '').strip())
+                except (ValueError, AttributeError):
+                    invalid_rating += 1
+                    failures.append({
+                        'Title': movie.get('Title', ''),
+                        'Year': movie.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': 'Invalid rating value',
+                        'YourRating': rating_raw,
+                        'TitleType': movie.get('Title Type', '')
+                    })
+                    continue
+                plex_rating = your_rating
+                found_movie = None
+                if use_lazy:
+                    try:
+                        results = library_section.search(guid=f'imdb://{imdb_id}')
+                        if results:
+                            found_movie = results[0]
+                    except Exception as e:  # pragma: no cover
+                        logger.debug("Lazy search error for %s: %s", imdb_id, e)
+                else:
+                    found_movie = guidLookup.get(f'imdb://{imdb_id}')
+                if not found_movie:
+                    not_found += 1
+                    failures.append({
+                        'Title': movie.get('Title', ''),
+                        'Year': movie.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': 'Not found in Plex by GUID',
+                        'YourRating': rating_raw,
+                        'TitleType': movie.get('Title Type', '')
+                    })
+                    continue
+                expected_types = imdb_type_to_plex_types(movie['Title Type'])
+                item_type = getattr(found_movie, 'type', None)
+                if expected_types and item_type not in expected_types:
+                    skip_msg = (f'Skipped "{found_movie.title} ({getattr(found_movie, "year", "?")})" - '
+                                f'type mismatch (CSV: {movie["Title Type"]}, Plex: {item_type})')
+                    logger.debug(skip_msg)
+                    self.log_message(skip_msg, log_filename)
+                    type_mismatch += 1
+                    failures.append({
+                        'Title': movie.get('Title', ''),
+                        'Year': movie.get('Year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': f'Type mismatch (Plex={item_type})',
+                        'YourRating': rating_raw,
+                        'TitleType': movie.get('Title Type', '')
+                    })
+                    continue
+                force_overwrite = values.get('-FORCEOVERWRITE-', False)
+                if getattr(found_movie, 'ratingKey', None):
+                    try:
+                        fresh = library_section.fetchItem(found_movie.ratingKey)
+                        if fresh:
+                            found_movie = fresh
+                    except Exception as e:  # pragma: no cover
+                        logger.debug('fetchItem failed for %s: %s', imdb_id, e)
+                existing_rating = getattr(found_movie, 'userRating', None)
+                if not force_overwrite and existing_rating is not None:
+                    try:
+                        existing_rating_float = float(existing_rating)
+                    except Exception:
+                        existing_rating_float = existing_rating
+                    logger.debug('Existing rating (fresh) for %s (%s): %s incoming: %s', found_movie.title, imdb_id, existing_rating_float, plex_rating)
+                    if isinstance(existing_rating_float, (int, float)) and abs(existing_rating_float - plex_rating) < 0.01:
+                        unchanged_skipped += 1
+                        debug_msg = (f'Skipping unchanged rating for "{found_movie.title} ({getattr(found_movie, "year", "?")})" '
+                                     f'existing={existing_rating_float} incoming={plex_rating}')
+                        logger.debug(debug_msg)
+                        self.log_message(debug_msg, log_filename)
+                        continue
+                try:
+                    if dry_run:
+                        star_form = plex_rating / 2.0
+                        preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        if values.get("-WATCHED-", False):
+                            preview_entry += " and mark watched"
+                        preview_samples.append(preview_entry)
+                        self.log_message(preview_entry, log_filename)
+                        total_updated_movies += 1
+                    else:
+                        found_movie.rate(rating=plex_rating)
+                        star_form = plex_rating / 2.0
+                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        logger.info(message)
+                        self.log_message(message, log_filename)
+                        if values.get("-WATCHED-", False):
+                            try:
+                                found_movie.markWatched()
+                                watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                                logger.info(watched_msg)
+                                self.log_message(watched_msg, log_filename)
+                            except Exception as e:
+                                error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                                logger.error(error_msg)
+                                self.log_message(error_msg, log_filename)
+                        total_updated_movies += 1
+                except Exception as e:
+                    rate_failed += 1
+                    failures.append({
+                        'Title': getattr(found_movie, 'title', ''),
+                        'Year': getattr(found_movie, 'year', ''),
+                        'IMDbID': imdb_id,
+                        'Reason': f'Rate failed: {e}',
+                        'YourRating': rating_raw,
+                        'TitleType': movie.get('Title Type', '')
+                    })
+                if dry_run and len(preview_samples) >= PREVIEW_LIMIT:
+                    pass
 
         if dry_run:
             message = f"DRY RUN: {total_updated_movies} of {total_movies} items would be updated (IMDb)"
@@ -500,7 +656,7 @@ class RatingsToPlexRatingsController:
                     try:
                         if dry_run:
                             star_form = plex_rating / 2.0
-                            preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                            preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating}'
                             if values.get("-WATCHED-", False):
                                 preview_entry += " and mark watched"
                             self.log_message(preview_entry, log_filename)
@@ -508,7 +664,7 @@ class RatingsToPlexRatingsController:
                         else:
                             found_movie.rate(rating=plex_rating)
                             star_form = plex_rating / 2.0
-                            message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                            message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
                             logger.info(message)
                             self.log_message(message, log_filename)
                             if values.get("-WATCHED-", False):
