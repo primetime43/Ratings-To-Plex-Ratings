@@ -194,13 +194,16 @@ class RatingsToPlexRatingsController:
             logger.error("Library section %s not found", selected_library)
             self.log_message(f'Error: Library section {selected_library} not found', log_filename)
             return False
+        dry_run = values.get('-DRYRUN-', False)
+        if dry_run:
+            self.log_message('DRY RUN ENABLED: No changes will be written to Plex.', log_filename)
         try:
             with open(filepath, 'r', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 if values['-IMDB-']:
-                    return self.update_ratings_from_imdb(csv_reader, library_section, values, log_filename, filepath)
+                    return self.update_ratings_from_imdb(csv_reader, library_section, values, log_filename, filepath, dry_run=dry_run)
                 elif values['-LETTERBOXD-']:
-                    return self.update_ratings_from_letterboxd(csv_reader, library_section, values, log_filename, filepath)
+                    return self.update_ratings_from_letterboxd(csv_reader, library_section, values, log_filename, filepath, dry_run=dry_run)
         except FileNotFoundError:
             logger.error("CSV file not found: %s", filepath)
             self.log_message('Error: File not found', log_filename)
@@ -210,7 +213,7 @@ class RatingsToPlexRatingsController:
             self.log_message(f'Error processing CSV: {e}', log_filename)
             return False
 
-    def update_ratings_from_imdb(self, csv_reader, library_section, values, log_filename, source_filepath):
+    def update_ratings_from_imdb(self, csv_reader, library_section, values, log_filename, source_filepath, dry_run: bool = False):
         selected_media_types = self._get_selected_media_types(values)
         logger.info("Updating IMDb ratings (lazy threshold=%d)", IMDB_LAZY_LOOKUP_THRESHOLD)
         self.log_message("Updating IMDb ratings", log_filename)
@@ -253,6 +256,8 @@ class RatingsToPlexRatingsController:
             logger.debug("Built full GUID index (%d entries) in %.2fs", len(guidLookup), duration)
 
         writes = 0
+        preview_samples = []  # collect up to N previews
+        PREVIEW_LIMIT = 15
         for movie in rows:
             imdb_id = movie.get('Const')
             if not imdb_id:
@@ -350,25 +355,34 @@ class RatingsToPlexRatingsController:
                     continue
 
             try:
-                found_movie.rate(rating=plex_rating)
-                star_form = plex_rating / 2.0
-                message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
-                logger.info(message)
-                self.log_message(message, log_filename)
-                if values.get("-WATCHED-", False):
-                    try:
-                        found_movie.markWatched()
-                        watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                        logger.info(watched_msg)
-                        self.log_message(watched_msg, log_filename)
-                    except Exception as e:
-                        error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                        logger.error(error_msg)
-                        self.log_message(error_msg, log_filename)
-                total_updated_movies += 1
-                writes += 1
-                if writes % RATING_WRITE_PAUSE_EVERY == 0:
-                    time.sleep(RATING_WRITE_PAUSE_SECONDS)
+                if dry_run:
+                    star_form = plex_rating / 2.0
+                    preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                    if values.get("-WATCHED-", False):
+                        preview_entry += " and mark watched"
+                    preview_samples.append(preview_entry)
+                    self.log_message(preview_entry, log_filename)
+                    total_updated_movies += 1  # count as prospective update
+                else:
+                    found_movie.rate(rating=plex_rating)
+                    star_form = plex_rating / 2.0
+                    message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                    logger.info(message)
+                    self.log_message(message, log_filename)
+                    if values.get("-WATCHED-", False):
+                        try:
+                            found_movie.markWatched()
+                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                            logger.info(watched_msg)
+                            self.log_message(watched_msg, log_filename)
+                        except Exception as e:
+                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                            logger.error(error_msg)
+                            self.log_message(error_msg, log_filename)
+                    total_updated_movies += 1
+                    writes += 1
+                    if writes % RATING_WRITE_PAUSE_EVERY == 0:
+                        time.sleep(RATING_WRITE_PAUSE_SECONDS)
             except Exception as e:
                 rate_failed += 1
                 failures.append({
@@ -379,8 +393,14 @@ class RatingsToPlexRatingsController:
                     'YourRating': rating_raw,
                     'TitleType': movie.get('Title Type', '')
                 })
+            if dry_run and len(preview_samples) >= PREVIEW_LIMIT:
+                # Do not spam; continue counting but stop logging each
+                pass
 
-        message = f"Successfully updated {total_updated_movies} out of {total_movies} (IMDb)"
+        if dry_run:
+            message = f"DRY RUN: {total_updated_movies} of {total_movies} items would be updated (IMDb)"
+        else:
+            message = f"Successfully updated {total_updated_movies} out of {total_movies} (IMDb)"
         logger.info(message)
         self.log_message(message, log_filename)
         breakdown = [
@@ -395,10 +415,13 @@ class RatingsToPlexRatingsController:
         ]
         for line in breakdown:
             self.log_message(line, log_filename)
-        self._export_failures_if_any(failures, source_filepath, 'imdb', log_filename)
+        if not dry_run:
+            self._export_failures_if_any(failures, source_filepath, 'imdb', log_filename)
+        else:
+            self.log_message('Dry run mode: No failure CSV exported.', log_filename)
         return True
 
-    def update_ratings_from_letterboxd(self, csv_reader, library_section, values, log_filename, source_filepath):
+    def update_ratings_from_letterboxd(self, csv_reader, library_section, values, log_filename, source_filepath, dry_run: bool = False):
         total_movies = 0
         total_updated_movies = 0
         failures: List[Dict[str, str]] = []
@@ -475,22 +498,30 @@ class RatingsToPlexRatingsController:
                             self.log_message(debug_msg, log_filename)
                             continue
                     try:
-                        found_movie.rate(rating=plex_rating)
-                        star_form = plex_rating / 2.0
-                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
-                        logger.info(message)
-                        self.log_message(message, log_filename)
-                        if values.get("-WATCHED-", False):
-                            try:
-                                found_movie.markWatched()
-                                watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                                logger.info(watched_msg)
-                                self.log_message(watched_msg, log_filename)
-                            except Exception as e:
-                                error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                                logger.error(error_msg)
-                                self.log_message(error_msg, log_filename)
-                        total_updated_movies += 1
+                        if dry_run:
+                            star_form = plex_rating / 2.0
+                            preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                            if values.get("-WATCHED-", False):
+                                preview_entry += " and mark watched"
+                            self.log_message(preview_entry, log_filename)
+                            total_updated_movies += 1
+                        else:
+                            found_movie.rate(rating=plex_rating)
+                            star_form = plex_rating / 2.0
+                            message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
+                            logger.info(message)
+                            self.log_message(message, log_filename)
+                            if values.get("-WATCHED-", False):
+                                try:
+                                    found_movie.markWatched()
+                                    watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                                    logger.info(watched_msg)
+                                    self.log_message(watched_msg, log_filename)
+                                except Exception as e:
+                                    error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                                    logger.error(error_msg)
+                                    self.log_message(error_msg, log_filename)
+                            total_updated_movies += 1
                     except Exception as e:
                         rate_failed += 1
                         failures.append({
@@ -502,7 +533,10 @@ class RatingsToPlexRatingsController:
             except Exception as e:  # pragma: no cover
                 logger.error('Error processing row: %s', e)
             total_movies += 1
-        message = f"Successfully updated {total_updated_movies} out of {total_movies} (Letterboxd)"
+        if dry_run:
+            message = f"DRY RUN: {total_updated_movies} of {total_movies} items would be updated (Letterboxd)"
+        else:
+            message = f"Successfully updated {total_updated_movies} out of {total_movies} (Letterboxd)"
         logger.info(message)
         self.log_message(message, log_filename)
         breakdown = [
@@ -516,7 +550,10 @@ class RatingsToPlexRatingsController:
         ]
         for line in breakdown:
             self.log_message(line, log_filename)
-        self._export_failures_if_any(failures, source_filepath, 'letterboxd', log_filename)
+        if not dry_run:
+            self._export_failures_if_any(failures, source_filepath, 'letterboxd', log_filename)
+        else:
+            self.log_message('Dry run mode: No failure CSV exported.', log_filename)
         return True
 
     def _get_selected_media_types(self, values):

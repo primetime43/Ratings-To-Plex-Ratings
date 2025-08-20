@@ -28,7 +28,7 @@ v1.1 <br>
 
 ## **How it works**
 
-This application provides a GUI to authenticate with your Plex account, select a server and library, import a CSV file with your IMDb / Letterboxd ratings, and update the ratings in your Plex library. IMDb syncing supports multiple title types (Movies & TV); Letterboxd syncing covers movies.
+This script uses a simple GUI to authenticate with your Plex account, select a server, import a CSV file with your IMDb/Letterboxd ratings, and update the ratings of your Plex movie library accordingly.
 
 Here's a brief rundown of the steps:
 
@@ -36,14 +36,15 @@ Here's a brief rundown of the steps:
 
 2. **Select a server**: The application fetches all the servers associated with your Plex account that you own. You can then select the server whose movie ratings you want to update.
 
-3. **Select a library**: Choose the target library (Movies / TV / Mixed). The tool will only update items that exist in that library.
+3. **Select a library**: Select the library to retrieve and update the ratings for this library.
 
 4. **Select a CSV file**: Choose a CSV exported from IMDb (Your Ratings export) or Letterboxd (Data export → ratings.csv). The application parses it and stages rating updates.
 
 5. **Choose media types (IMDb only)**: Toggle which IMDb "Title Type" entries to process: Movie, TV Series, TV Mini Series, TV Movie. (Letterboxd export is movies only.)
 6. **Optional – Mark as watched**: If enabled, any item whose rating is set/updated will be marked watched. (Use cautiously—partial watches will become fully watched.)
 7. **Optional – Force overwrite ratings**: If enabled, the tool will always reapply the rating even if Plex already shows the same value (bypasses the unchanged skip logic; useful if you cleared a rating in Plex and Plex still returns a stale value through the API).
-8. **Click "Update Plex Ratings"**: Starts the background update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
+8. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
+9. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
 
 ### Rating scale handling
 
@@ -66,60 +67,25 @@ Here's a brief rundown of the steps:
 | 4.5           | 9            |
 | 5.0           | 10           |
 
-### Dual-form logging
-When a rating is updated the log shows both numeric (1–10) and star forms, e.g.:
-`Updated Plex rating for "Inception (2010)" to 8 (4.0★)`
+### Dual-Form Logging
+When a rating is updated the log shows both numeric (1–10) and star forms (e.g. `Updated Plex rating for "Inception (2010)" to 8 (4.0★)`). This is informational only; no rounding is applied—IMDb ratings are written exactly as provided.
 
-This is informational only; no rounding is applied—IMDb ratings are written exactly as provided; Letterboxd ratings are multiplied by 2.
+The application logs all the operations it performs, which includes connecting to the server, finding the movies, and updating the ratings. If an error occurs during the login or updating process, the application will display an error message.
 
-### Failure & breakdown reporting
-At the end of a run a breakdown is logged, for example:
-```
-Breakdown:
-  Skipped unchanged: 42
-  Missing IMDb ID: 1
-  Invalid rating value: 0
-  Not found in Plex: 7
-  Type mismatch: 3
-  Rate failed errors: 0
-  Exported failures: 7
-```
-If there are unmatched or failed entries a timestamped CSV is written in the working directory:
-`Unmatched_imdb_<sourceCSVStem>_YYYYMMDD_HHMMSS.csv`
+### Dry Run Mode Details
+When the "Dry run" checkbox is selected:
+- No ratings are written and nothing is marked watched.
+- All other matching / filtering logic still runs so counts are accurate.
+- A subset of prospective changes (capped to avoid spamming) is logged with a `[DRY RUN]` prefix.
+- Failures/unmatched export CSV is suppressed (so you don’t clutter your folder with test files).
+- Final summary line shows `DRY RUN:` instead of `Successfully updated`.
 
-Each row includes reason details (e.g. Not found, Type mismatch, Invalid rating value, Rate failed).
-
-### Logging & encoding
-Two log destinations:
-- Rolling main log: `RatingsToPlex.log`
-- Per-run log: `RatingsUpdateLog_YYYYMMDD_HHMMSS.log`
-
-Logs are written in UTF-8 so the star symbol (★) is preserved. If the system cannot write a character a sanitized fallback is used so the run continues.
-
-### Performance notes
-- IMDb processing uses two strategies: lazy GUID lookup for smaller CSVs (<= 300 rows by default) or a one-time full library scan building a GUID index for larger sets.
-- Server & library metadata are prefetched asynchronously after login to reduce perceived latency when selecting servers/libraries.
-
-### Force overwrite vs. unchanged skip
-Normally the tool skips writing a rating when the incoming value equals the existing Plex `userRating` (difference < 0.01). Enable *Force overwrite ratings* if:
-- You manually cleared a rating in Plex UI but the API still returns the old value.
-- You want to ensure a re-write (e.g. to refresh watched-mark side-effects or trigger external agents).
-
-### Safety / best practices
-- Always keep a copy of your original CSV exports.
-- Test with a small CSV first (filter a few rows) before large batch updates.
-- Use *Mark as watched* only if you truly want all updated items marked viewed.
-
-If an error occurs during login or updating, an error line is appended to the run log and shown in the GUI.
-
----
+Use a dry run first after large CSV exports or when tuning media type filters to ensure the updates match expectations.
 
 ## **Command for creating an exe out of the python file**
 ```
 pyinstaller --onefile --noconsole RatingsToPlexRatingsGUI.py
 ```
-
-Tip: Add `--icon <icoPath>` if you have a custom icon.
 
 ## **Exporting Your IMDb Ratings:**
 1. Go to IMDb and sign into your account.
@@ -143,27 +109,3 @@ or manually:
 ```
 pip install customtkinter plexapi
 ```
-
-If packaging with PyInstaller ensure the environment where you run `pyinstaller` already has these dependencies installed.
-
----
-### Troubleshooting
-**Nothing updates / all say Skipped unchanged**
-- Verify the CSV rating values are numeric.
-- If you recently cleared ratings in Plex but they still compare equal, enable *Force overwrite ratings* and re-run.
-
-**Many Not found in Plex**
-- Ensure you selected the correct library (e.g. TV ratings won’t match in a Movies-only library).
-- Confirm IMDb IDs exist in Plex metadata (refresh metadata if recently added).
-
-**Type mismatch entries**
-- A CSV title type (e.g. TV Series) didn’t match the Plex item type returned—check that you are targeting the right library.
-
-**Encoding / star character issues**
-- Logs are UTF-8; if viewing in a tool that doesn’t support UTF-8 you may see replacement characters.
-
-**PyInstaller exe fails to start**
-- Rebuild in a clean virtual environment; ensure `plexapi` imported successfully by running `python -c "import plexapi"` first.
-
----
-Feel free to open issues or submit improvements for new media type handling, additional source platforms, or more granular progress reporting.

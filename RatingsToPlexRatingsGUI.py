@@ -28,112 +28,75 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_movie_var = tk.BooleanVar(value=True)
         self.mark_watched_var = tk.BooleanVar(value=False)
         self.mark_watched_var.trace_add("write", self.on_mark_watched_change)
+        self.force_overwrite_var = tk.BooleanVar(value=False)
+        self.dry_run_var = tk.BooleanVar(value=False)
         self.setup_ui()
 
     def setup_ui(self):
-        self.login_button = ctk.CTkButton(
-            self, text="Login to Plex", command=self.login_to_plex)
+        self.login_button = ctk.CTkButton(self, text="Login to Plex", command=self.login_to_plex)
         self.login_button.pack(pady=10)
 
-        # Server dropdown menu setup
-        self.server_menu = ctk.CTkOptionMenu(
-            self,
-            variable=self.server_var,
-            values=[""]  # Initial placeholder values
-        )
+        self.server_menu = ctk.CTkOptionMenu(self, variable=self.server_var, values=[""])
         self.server_menu.pack(pady=10)
 
-        # Library dropdown menu setup
-        self.library_menu = ctk.CTkOptionMenu(
-            self,
-            variable=self.library_var,
-            values=[""]  # Placeholder text
-        )
+        self.library_menu = ctk.CTkOptionMenu(self, variable=self.library_var, values=[""])
         self.library_menu.pack(pady=10)
 
-        # Create a frame to hold radio buttons
         self.radio_button_frame = ctk.CTkFrame(self)
         self.radio_button_frame.pack(pady=10)
-
-        # Radio button setup within the frame using grid
-        self.imdb_radio = ctk.CTkRadioButton(
-            self.radio_button_frame, text="IMDb", variable=self.radio_value, value="IMDb")
+        self.imdb_radio = ctk.CTkRadioButton(self.radio_button_frame, text="IMDb", variable=self.radio_value, value="IMDb")
         self.imdb_radio.grid(row=0, column=0, padx=10)
-
-        self.letterboxd_radio = ctk.CTkRadioButton(
-            self.radio_button_frame, text="Letterboxd", variable=self.radio_value, value="Letterboxd")
+        self.letterboxd_radio = ctk.CTkRadioButton(self.radio_button_frame, text="Letterboxd", variable=self.radio_value, value="Letterboxd")
         self.letterboxd_radio.grid(row=0, column=1, padx=10)
 
-        self.select_file_button = ctk.CTkButton(
-            self, text="Select CSV File", command=self.select_file)
+        self.select_file_button = ctk.CTkButton(self, text="Select CSV File", command=self.select_file)
         self.select_file_button.pack(pady=10)
 
-        # Create a frame to hold checkboxes
         self.checkbox_frame = ctk.CTkFrame(self)
         self.checkbox_frame.pack(pady=10)
-
-        # Checkbox setup within the frame using grid
-        self.movie_checkbox = ctk.CTkCheckBox(
-            self.checkbox_frame, text="Movie", variable=self.movie_var)
+        self.movie_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="Movie", variable=self.movie_var)
         self.movie_checkbox.grid(row=0, column=0, padx=10)
-
-        self.tv_series_checkbox = ctk.CTkCheckBox(
-            self.checkbox_frame, text="TV Series", variable=self.tv_series_var)
+        self.tv_series_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="TV Series", variable=self.tv_series_var)
         self.tv_series_checkbox.grid(row=0, column=1, padx=10)
-
-        self.tv_mini_series_checkbox = ctk.CTkCheckBox(
-            self.checkbox_frame, text="TV Mini Series", variable=self.tv_mini_series_var)
+        self.tv_mini_series_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="TV Mini Series", variable=self.tv_mini_series_var)
         self.tv_mini_series_checkbox.grid(row=0, column=2, padx=10)
-
-        self.tv_movie_checkbox = ctk.CTkCheckBox(
-            self.checkbox_frame, text="TV Movie", variable=self.tv_movie_var)
+        self.tv_movie_checkbox = ctk.CTkCheckBox(self.checkbox_frame, text="TV Movie", variable=self.tv_movie_var)
         self.tv_movie_checkbox.grid(row=0, column=3, padx=10)
-        
-        # Checkbox for marking watched status
-        self.watched_checkbox = ctk.CTkCheckBox(
-            self,
-            text="Mark as watched if rating is imported",
-            variable=self.mark_watched_var
-        )
+
+        self.watched_checkbox = ctk.CTkCheckBox(self, text="Mark as watched if rating is imported", variable=self.mark_watched_var)
         self.watched_checkbox.pack(pady=10)
 
-        # Force overwrite ratings option
-        self.force_overwrite_var = tk.BooleanVar(value=False)
-        self.force_overwrite_checkbox = ctk.CTkCheckBox(
-            self,
-            text="Force reapply ratings (bypass unchanged check)",
-            variable=self.force_overwrite_var
-        )
+        self.force_overwrite_checkbox = ctk.CTkCheckBox(self, text="Force reapply ratings (bypass unchanged check)", variable=self.force_overwrite_var)
         self.force_overwrite_checkbox.pack(pady=5)
 
-        # Update libraries button setup
-        self.startUpdate_button = ctk.CTkButton(
-            self, text="Update Plex Ratings", command=self.update_ratings)
+        self.dry_run_checkbox = ctk.CTkCheckBox(self, text="Dry run (preview only; make no changes)", variable=self.dry_run_var)
+        self.dry_run_checkbox.pack(pady=5)
+
+        self.startUpdate_button = ctk.CTkButton(self, text="Update Plex Ratings", command=self.update_ratings)
         self.startUpdate_button.pack(pady=10)
 
-        # Log display setup with a scrollable text widget
         self.log_textbox = scrolledtext.ScrolledText(
             self,
             wrap=tk.WORD,
             height=10,
             state='disabled',
             font=("MS Sans Serif", 10),
-            bg="#2b2b2b",  # Dark gray background to match the dark theme of customtkinter
-            fg="white",  # White text
-            insertbackground="white",  # Ensures the cursor is white in the text box
-            borderwidth=0,  # Removes the border to blend with customtkinter
+            bg="#2b2b2b",
+            fg="white",
+            insertbackground="white",
+            borderwidth=0,
         )
         self.log_textbox.pack(pady=10, fill=tk.BOTH, expand=True)
-        
+
     def on_mark_watched_change(self, *args):
         if self.mark_watched_var.get():
-            messagebox.showwarning("WARNING - Mark as Watched Enabled",
-                                "When enabled, any title that has its rating imported will be marked as watched. This could mean items you've not completely watched will be marked as watched. Use with caution.")
+            messagebox.showwarning(
+                "WARNING - Mark as Watched Enabled",
+                "When enabled, any title that has its rating imported will be marked as watched. This could mean items you've not completely watched will be marked as watched. Use with caution."
+            )
 
     def select_file(self):
-        self.selected_file_path = filedialog.askopenfilename(
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
-        )
+        self.selected_file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if self.selected_file_path:
             self.log_message(f"Selected file: {self.selected_file_path}")
         else:
@@ -145,13 +108,10 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             self.log_message("Please select a valid server.")
         else:
             self.log_message(f"Server selected: {selected_server} (loading libraries...)")
-            # Set a temporary placeholder while loading
             self.library_menu.configure(values=["Loading..."])
-            # Fetch libraries asynchronously to avoid UI freeze
             self.controller.get_libraries_async(selected_server, self._on_libraries_loaded)
 
     def _on_libraries_loaded(self, libraries):
-        # Ensure UI updates happen in main thread
         def _update():
             self.update_libraries_dropdown(libraries)
         self.after(0, _update)
@@ -163,33 +123,25 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
     def update_libraries_dropdown(self, libraries):
         if libraries:
             self.library_menu.configure(values=libraries)
-            self.log_message(
-                "Libraries fetched successfully. Please select a library.")
+            self.log_message("Libraries fetched successfully. Please select a library.")
         else:
             self.log_message("No libraries found for the selected server.")
 
     def update_ratings(self):
-        # Disable UI elements
         self._set_ui_state('disabled')
-        # Start the background thread
-        threading.Thread(target=self._update_ratings_thread,
-                         daemon=True).start()
+        threading.Thread(target=self._update_ratings_thread, daemon=True).start()
 
     def _update_ratings_thread(self):
         selected_library = self.library_var.get()
         filepath = self.selected_file_path
         if not filepath or selected_library == "Select a library":
             self.log_message("Please select a file and a library first.")
-            # Ensure the UI elements are re-enabled even when returning early
             self.after(0, self._set_ui_state, 'normal')
             return
-
-        # Determine the source (IMDb or Letterboxd)
         if self.radio_value.get() == "IMDb":
             self.log_message("Starting update from IMDb...")
         elif self.radio_value.get() == "Letterboxd":
             self.log_message("Starting update from Letterboxd...")
-
         values = {
             "-IMDB-": self.radio_value.get() == "IMDb",
             "-LETTERBOXD-": self.radio_value.get() == "Letterboxd",
@@ -198,23 +150,19 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-TVMINISERIES-": self.tv_mini_series_var.get(),
             "-TVMOVIE-": self.tv_movie_var.get(),
             "-WATCHED-": self.mark_watched_var.get(),
-            "-FORCEOVERWRITE-": self.force_overwrite_var.get()
+            "-FORCEOVERWRITE-": self.force_overwrite_var.get(),
+            "-DRYRUN-": self.dry_run_var.get(),
         }
-
-        # Call controller to update ratings and pass the log_message function to log each movie update
         self.controller.update_ratings(filepath, selected_library, values)
-
-        # Re-enable the UI elements on the main thread
         self.after(0, self._set_ui_state, 'normal')
 
     def log_message(self, message):
         self.log_textbox.configure(state='normal')
         self.log_textbox.insert(tk.END, message + '\n')
         self.log_textbox.configure(state='disabled')
-        self.log_textbox.see(tk.END)  # Auto-scroll to the end
+        self.log_textbox.see(tk.END)
 
     def _set_ui_state(self, state):
-        # Disable or enable UI elements
         self.startUpdate_button.configure(state=state)
         self.select_file_button.configure(state=state)
         self.server_menu.configure(state=state)
@@ -228,11 +176,10 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.login_button.configure(state=state)
         self.watched_checkbox.configure(state=state)
         self.force_overwrite_checkbox.configure(state=state)
+        self.dry_run_checkbox.configure(state=state)
 
     def login_to_plex(self):
-        # Call the login method with the UI update callback
-        threading.Thread(target=self._login_to_plex_thread,
-                         daemon=True).start()
+        threading.Thread(target=self._login_to_plex_thread, daemon=True).start()
 
     def _login_to_plex_thread(self):
         self.controller.login_and_fetch_servers(self.update_servers_ui)
@@ -241,13 +188,11 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         if success:
             if servers:
                 self.server_menu.configure(values=servers)
-                self.log_message(
-                    "Servers fetched successfully. Please select a server.")
+                self.log_message("Servers fetched successfully. Please select a server.")
             else:
                 self.log_message("No servers found.")
         else:
-            self.log_message(
-                "Failed to fetch servers. Please try logging in again.")
+            self.log_message("Failed to fetch servers. Please try logging in again.")
 
 
 if __name__ == "__main__":
