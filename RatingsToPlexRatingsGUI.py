@@ -4,49 +4,30 @@ import tkinter as tk
 from tkinter import StringVar
 from tkinter import filedialog, scrolledtext, messagebox
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
+from version import __version__
 
-# Set the version number
-VERSION = '2.1.1'
 
 class IMDbRatingsToPlexRatingsApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.controller = RatingsToPlexRatingsController(
-            log_callback=self.log_message)
-        self.selected_file_path = None  # To store the selected file path
-
-        # Server selection variable
+        self.controller = RatingsToPlexRatingsController(log_callback=self.log_message)
+        self.selected_file_path = None
         self.server_var = tk.StringVar(value="Select a server")
-        self.server_var.trace_add(
-            "write", self.on_server_selection_change)  # Attach listener
-
+        self.server_var.trace_add("write", self.on_server_selection_change)
         self.library_var = tk.StringVar(value="Select a library")
         self.library_var.trace_add("write", self.on_library_selection_change)
-
-        self.title(f'IMDb Ratings To Plex Ratings v{VERSION}')
-        self.geometry("550x600")  # Increased height for the log output
+        self.title(f'IMDb Ratings To Plex Ratings v{__version__}')
+        self.geometry("550x600")
         self.resizable(False, False)
         self.font = ("MS Sans Serif", 12, "bold")
-
-        # Initialize radio_value here
-        # Default value set to "IMDb"
         self.radio_value = StringVar(value="IMDb")
-
-        # To keep track of servers for which libraries have been loaded
         self.processed_servers = set()
-
-        # Checkbox state variables
         self.movie_var = tk.BooleanVar(value=True)
         self.tv_series_var = tk.BooleanVar(value=True)
         self.tv_mini_series_var = tk.BooleanVar(value=True)
         self.tv_movie_var = tk.BooleanVar(value=True)
-        
-        # Checkbox for marking watched status
         self.mark_watched_var = tk.BooleanVar(value=False)
-        # Add a trace callback to show an alert when checked
         self.mark_watched_var.trace_add("write", self.on_mark_watched_change)
-
-        # Create widgets
         self.setup_ui()
 
     def setup_ui(self):
@@ -115,6 +96,15 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             variable=self.mark_watched_var
         )
         self.watched_checkbox.pack(pady=10)
+
+        # Force overwrite ratings option
+        self.force_overwrite_var = tk.BooleanVar(value=False)
+        self.force_overwrite_checkbox = ctk.CTkCheckBox(
+            self,
+            text="Force reapply ratings (bypass unchanged check)",
+            variable=self.force_overwrite_var
+        )
+        self.force_overwrite_checkbox.pack(pady=5)
 
         # Update libraries button setup
         self.startUpdate_button = ctk.CTkButton(
@@ -207,7 +197,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
             "-TVSERIES-": self.tv_series_var.get(),
             "-TVMINISERIES-": self.tv_mini_series_var.get(),
             "-TVMOVIE-": self.tv_movie_var.get(),
-            "-WATCHED-": self.mark_watched_var.get()
+            "-WATCHED-": self.mark_watched_var.get(),
+            "-FORCEOVERWRITE-": self.force_overwrite_var.get()
         }
 
         # Call controller to update ratings and pass the log_message function to log each movie update
@@ -235,6 +226,8 @@ class IMDbRatingsToPlexRatingsApp(ctk.CTk):
         self.tv_mini_series_checkbox.configure(state=state)
         self.tv_movie_checkbox.configure(state=state)
         self.login_button.configure(state=state)
+        self.watched_checkbox.configure(state=state)
+        self.force_overwrite_checkbox.configure(state=state)
 
     def login_to_plex(self):
         # Call the login method with the UI update callback

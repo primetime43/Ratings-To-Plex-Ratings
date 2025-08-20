@@ -19,7 +19,8 @@ logging.basicConfig(
     filename="RatingsToPlex.log",
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
+    encoding='utf-8'
 )
 logger = logging.getLogger(__name__)
 
@@ -116,8 +117,20 @@ class RatingsToPlexRatingsController:
         logger.info(message)
         if self.log_callback:
             self.log_callback(full_message)
-        with open(log_filename, 'a') as log_file:
-            log_file.write(full_message)
+        # Ensure UTF-8 so rating star (★) does not raise Windows charmap errors
+        try:
+            with open(log_filename, 'a', encoding='utf-8') as log_file:
+                log_file.write(full_message)
+        except UnicodeEncodeError:
+            # Fallback: strip/replace problematic chars and retry to avoid aborting the entire run
+            safe_message = full_message.encode('ascii', 'replace').decode('ascii')
+            try:
+                with open(log_filename, 'a', encoding='utf-8', errors='ignore') as log_file:
+                    log_file.write(safe_message)
+            except Exception as inner_e:  # pragma: no cover
+                logger.error("Secondary log write failure (sanitized) for %s: %s", log_filename, inner_e)
+        except Exception as e:  # pragma: no cover
+            logger.error("Log write failure for %s: %s", log_filename, e)
 
     def login_and_fetch_servers(self, update_ui_callback):
         logger.info("Initiating Plex login and fetching servers")
@@ -267,6 +280,7 @@ class RatingsToPlexRatingsController:
                     'TitleType': movie.get('Title Type', '')
                 })
                 continue
+            # Direct IMDb 1–10 rating application
             plex_rating = your_rating
 
             found_movie = None
@@ -310,15 +324,35 @@ class RatingsToPlexRatingsController:
                 })
                 continue
 
+            force_overwrite = values.get('-FORCEOVERWRITE-', False)
+            # Attempt to fetch a fresh copy to avoid stale cached userRating
+            if getattr(found_movie, 'ratingKey', None):
+                try:
+                    fresh = library_section.fetchItem(found_movie.ratingKey)
+                    if fresh:
+                        found_movie = fresh
+                except Exception as e:  # pragma: no cover
+                    logger.debug('fetchItem failed for %s: %s', imdb_id, e)
+
             existing_rating = getattr(found_movie, 'userRating', None)
-            if existing_rating is not None and abs(existing_rating - plex_rating) < 1e-6:
-                unchanged_skipped += 1
-                logger.debug('Skipping unchanged rating for %s (%s)', found_movie.title, imdb_id)
-                continue
+            if not force_overwrite and existing_rating is not None:
+                try:
+                    existing_rating_float = float(existing_rating)
+                except Exception:
+                    existing_rating_float = existing_rating
+                logger.debug('Existing rating (fresh) for %s (%s): %s incoming: %s', found_movie.title, imdb_id, existing_rating_float, plex_rating)
+                if isinstance(existing_rating_float, (int, float)) and abs(existing_rating_float - plex_rating) < 0.01:
+                    unchanged_skipped += 1
+                    debug_msg = (f'Skipping unchanged rating for "{found_movie.title} ({getattr(found_movie, "year", "?")})" '
+                                 f'existing={existing_rating_float} incoming={plex_rating}')
+                    logger.debug(debug_msg)
+                    self.log_message(debug_msg, log_filename)
+                    continue
 
             try:
                 found_movie.rate(rating=plex_rating)
-                message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                star_form = plex_rating / 2.0
+                message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
                 logger.info(message)
                 self.log_message(message, log_filename)
                 if values.get("-WATCHED-", False):
@@ -346,7 +380,7 @@ class RatingsToPlexRatingsController:
                     'TitleType': movie.get('Title Type', '')
                 })
 
-        message = f"Successfully updated {total_updated_movies} out of {total_movies}"
+        message = f"Successfully updated {total_updated_movies} out of {total_movies} (IMDb)"
         logger.info(message)
         self.log_message(message, log_filename)
         breakdown = [
@@ -417,14 +451,33 @@ class RatingsToPlexRatingsController:
                         'YourRating': rating_str
                     })
                 else:
+                    force_overwrite = values.get('-FORCEOVERWRITE-', False)
+                    if getattr(found_movie, 'ratingKey', None):
+                        try:
+                            fresh = library_section.fetchItem(found_movie.ratingKey)
+                            if fresh:
+                                found_movie = fresh
+                        except Exception as e:  # pragma: no cover
+                            logger.debug('fetchItem failed for ratingKey %s: %s', getattr(found_movie, 'ratingKey', '?'), e)
                     existing_rating = getattr(found_movie, 'userRating', None)
-                    if existing_rating is not None and abs(existing_rating - plex_rating) < 1e-6:
-                        unchanged_skipped += 1
-                        total_movies += 1
-                        continue
+                    if not force_overwrite and existing_rating is not None:
+                        try:
+                            existing_rating_float = float(existing_rating)
+                        except Exception:
+                            existing_rating_float = existing_rating
+                        logger.debug('Existing rating (fresh) for %s: %s incoming: %s', found_movie.title, existing_rating_float, plex_rating)
+                        if isinstance(existing_rating_float, (int, float)) and abs(existing_rating_float - plex_rating) < 0.01:
+                            unchanged_skipped += 1
+                            total_movies += 1
+                            debug_msg = (f'Skipping unchanged rating for "{found_movie.title} ({getattr(found_movie, "year", "?")})" '
+                                         f'existing={existing_rating_float} incoming={plex_rating}')
+                            logger.debug(debug_msg)
+                            self.log_message(debug_msg, log_filename)
+                            continue
                     try:
                         found_movie.rate(rating=plex_rating)
-                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        star_form = plex_rating / 2.0
+                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}★)'
                         logger.info(message)
                         self.log_message(message, log_filename)
                         if values.get("-WATCHED-", False):
@@ -449,7 +502,7 @@ class RatingsToPlexRatingsController:
             except Exception as e:  # pragma: no cover
                 logger.error('Error processing row: %s', e)
             total_movies += 1
-        message = f"Successfully updated {total_updated_movies} out of {total_movies}"
+        message = f"Successfully updated {total_updated_movies} out of {total_movies} (Letterboxd)"
         logger.info(message)
         self.log_message(message, log_filename)
         breakdown = [
