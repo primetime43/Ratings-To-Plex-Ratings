@@ -43,8 +43,9 @@ Here's a brief rundown of the steps:
 5. **Choose media types (IMDb only)**: Toggle which IMDb "Title Type" entries to process: Movie, TV Series, TV Mini Series, TV Movie. (Letterboxd export is movies only.)
 6. **Optional – Mark as watched**: If enabled, any item whose rating is set/updated will be marked watched. (Use cautiously—partial watches will become fully watched.)
 7. **Optional – Force overwrite ratings**: If enabled, the tool will always reapply the rating even if Plex already shows the same value (bypasses the unchanged skip logic; useful if you cleared a rating in Plex and Plex still returns a stale value through the API).
-8. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
-9. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
+8. **Optional – Update items outside selected library**: When enabled, the tool will search *all* of your owned movie/show libraries for matches instead of limiting to the single selected library. Use this if you maintain multiple libraries (e.g. "4K Movies" + "HD Movies") and want ratings written wherever the item exists. (The dropdown library is still required for UI flow, but matching spans every movie/show library.)
+9. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
+10. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
 
 ### Rating scale handling
 
