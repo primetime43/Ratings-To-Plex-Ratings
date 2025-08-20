@@ -145,37 +145,66 @@ class RatingsToPlexRatingsController:
 
         logger.info("Updating IMDb ratings")
         self.log_message("Updating IMDb ratings", log_filename)  # Log to UI
-        guidLookup = {item.guid: item for item in library_section.all()}
-        guidLookup.update({guid.id: item for item in library_section.all() for guid in item.guids})
+        # Build GUID lookup once (include primary guid and any alternate ids)
+        all_items = library_section.all()
+        guidLookup = {item.guid: item for item in all_items if getattr(item, 'guid', None)}
+        for item in all_items:
+            for guid in getattr(item, 'guids', []) or []:
+                guidLookup[guid.id] = item
+
+        def imdb_type_to_plex_types(imdb_type):
+            """Map IMDb title type to acceptable Plex item.type values."""
+            mapping = {
+                'Movie': {'movie'},
+                'TV Movie': {'movie'},  # treat TV Movie as movie in Plex
+                'Short': {'movie'},
+                'TV Series': {'show'},
+                'TV Mini Series': {'show'},
+                'TV Episode': {'episode'},
+            }
+            return mapping.get(imdb_type, set())
 
         for movie in csv_reader:
             if movie['Title Type'] not in selected_media_types:
                 continue
 
-            imdb_id = movie['Const']
-            your_rating = float(movie['Your Rating'])
-            plex_rating = your_rating  # Plex uses a 10-point scale internally
+            imdb_id = movie.get('Const')
+            if not imdb_id:
+                continue
+            try:
+                your_rating = float(movie.get('Your Rating', '').strip())
+            except ValueError:
+                continue
+            plex_rating = your_rating  # already 10-point scale
             found_movie = guidLookup.get(f'imdb://{imdb_id}')
 
             if found_movie:
-                found_movie.rate(rating=plex_rating)
-                message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
-                logger.info(message)
-                self.log_message(message, log_filename)  # Log to both file and UI
+                expected_types = imdb_type_to_plex_types(movie['Title Type'])
+                item_type = getattr(found_movie, 'type', None)
+                if expected_types and item_type not in expected_types:
+                    skip_msg = (f'Skipped "{found_movie.title} ({getattr(found_movie, "year", "?")})" - '
+                                f'type mismatch (CSV: {movie["Title Type"]}, Plex: {item_type})')
+                    logger.debug(skip_msg)
+                    self.log_message(skip_msg, log_filename)
+                else:
+                    found_movie.rate(rating=plex_rating)
+                    message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                    logger.info(message)
+                    self.log_message(message, log_filename)  # Log to both file and UI
 
-                # Mark as watched if the option is enabled
-                if values.get("-WATCHED-", False):
-                    try:
-                        found_movie.markWatched()  # mark as watched
-                        watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
-                        logger.info(watched_msg)
-                        self.log_message(watched_msg, log_filename)
-                    except Exception as e:
-                        error_msg = f"Error marking as watched for {found_movie.title}: {e}"
-                        logger.error(error_msg)
-                        self.log_message(error_msg, log_filename)
+                    # Mark as watched if the option is enabled
+                    if values.get("-WATCHED-", False):
+                        try:
+                            found_movie.markWatched()
+                            watched_msg = f'Marked "{found_movie.title} ({found_movie.year})" as watched'
+                            logger.info(watched_msg)
+                            self.log_message(watched_msg, log_filename)
+                        except Exception as e:
+                            error_msg = f"Error marking as watched for {found_movie.title}: {e}"
+                            logger.error(error_msg)
+                            self.log_message(error_msg, log_filename)
 
-                total_updated_movies += 1
+                    total_updated_movies += 1
             total_movies += 1
 
         message = f"Successfully updated {total_updated_movies} out of {total_movies}"
@@ -188,7 +217,14 @@ class RatingsToPlexRatingsController:
         total_updated_movies = 0
 
         logger.info("Updating Letterboxd ratings")
-        library_movies = {(item.title, str(item.year)): item for item in library_section.all()}
+        # Letterboxd exports are (currently) movies only; restrict to Plex movies to avoid rating similarly named shows
+        library_movies = {}
+        for item in library_section.all():
+            if getattr(item, 'type', None) != 'movie':
+                continue
+            key = (item.title.lower().strip(), str(item.year))
+            # Keep first occurrence; avoid overwriting if duplicates exist
+            library_movies.setdefault(key, item)
 
         for movie in csv_reader:
             try:
@@ -202,14 +238,14 @@ class RatingsToPlexRatingsController:
                 your_rating = float(rating_str) * 2  # Convert Letterboxd ratings to 10-point scale
                 plex_rating = your_rating
 
-                search_key = (name, year)
+                search_key = (name.lower(), year)
                 found_movie = library_movies.get(search_key)
 
                 if found_movie:
                     found_movie.rate(rating=plex_rating)
                     message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
                     logger.info(message)
-                    self.log_message(message, log_filename)  # Log to both file and UI
+                    self.log_message(message, log_filename)
 
                     # Mark as watched if the option is enabled
                     if values.get("-WATCHED-", False):
