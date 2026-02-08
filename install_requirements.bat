@@ -1,6 +1,5 @@
 @echo off
 echo Installing required packages...
-pip install plexapi
-pip install flask
+pip install -r requirements.txt
 echo Installation complete.
 pause

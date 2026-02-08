@@ -102,14 +102,11 @@ Use a dry run first after large CSV exports or when tuning media type filters to
 - Python 3.10+
 - Packages: `plexapi`, `flask`
 
-Quick install (Windows batch provided):
+Install dependencies:
 ```
-install_requirements.bat
+pip install -r requirements.txt
 ```
-or manually:
-```
-pip install plexapi flask
-```
+Or on Windows, double-click `install_requirements.bat`.
 
 ## **Usage:**
 ```
