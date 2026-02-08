@@ -8,7 +8,7 @@
 
 # **IMDb & Letterboxd Ratings To Plex Ratings**
 
-Ratings-To-Plex is a desktop application that allows you to easily sync and transfer your IMDb and Letterboxd ratings to your Plex Media Server. This tool automates the process of updating movie ratings in your Plex libraries, providing a seamless way to ensure that your Plex media collection reflects your ratings from IMDb and Letterboxd.
+Ratings-To-Plex is a web-based tool that allows you to easily sync and transfer your IMDb and Letterboxd ratings to your Plex Media Server. It runs locally in your browser and automates the process of updating movie ratings in your Plex libraries, providing a seamless way to ensure that your Plex media collection reflects your ratings from IMDb and Letterboxd.
 
 <details>
   <summary>Click to view screenshots of the program</summary> <br>
@@ -31,7 +31,7 @@ v1.1 <br>
 
 ## **How it works**
 
-This script uses a simple GUI to authenticate with your Plex account, select a server, import a CSV file with your IMDb/Letterboxd ratings, and update the ratings of your Plex movie library accordingly.
+The app launches a local web server and opens your browser. From there you can authenticate with Plex, select a server, import a CSV file with your IMDb/Letterboxd ratings, preview what will change, and update the ratings of your Plex movie library accordingly.
 
 Here's a brief rundown of the steps:
 
@@ -44,11 +44,13 @@ Here's a brief rundown of the steps:
 4. **Select a CSV file**: Choose a CSV exported from IMDb (Your Ratings export) or Letterboxd (Data export → ratings.csv). The application parses it and stages rating updates.
 
 5. **Choose media types (IMDb only)**: Toggle which IMDb "Title Type" entries to process: Movie, TV Series, TV Mini Series, TV Movie. (Letterboxd export is movies only.)
-6. **Optional – Mark as watched**: If enabled, any item whose rating is set/updated will be marked watched. (Use cautiously—partial watches will become fully watched.)
-7. **Optional – Force overwrite ratings**: If enabled, the tool will always reapply the rating even if Plex already shows the same value (bypasses the unchanged skip logic; useful if you cleared a rating in Plex and Plex still returns a stale value through the API).
-8. **Optional – Update items outside selected library**: When enabled, the tool will search *all* of your owned movie/show libraries for matches instead of limiting to the single selected library. Use this if you maintain multiple libraries (e.g. "4K Movies" + "HD Movies") and want ratings written wherever the item exists. (The dropdown library is still required for UI flow, but matching spans every movie/show library.)
-9. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
-10. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress and decisions (updated / skipped / failures) stream into the log panel.
+6. **Preview changes**: Once connected and a CSV is uploaded, the preview panel automatically shows poster art, current vs. new ratings, and match status for every item. Filter by "Will Update", "Unchanged", or "Not on Server" and page through results.
+7. **Optional – Mark as watched**: If enabled, any item whose rating is set/updated will be marked watched. (Use cautiously—partial watches will become fully watched.)
+8. **Optional – Force overwrite ratings**: If enabled, the tool will always reapply the rating even if Plex already shows the same value (bypasses the unchanged skip logic). The preview updates in real time when this is toggled.
+9. **Optional – Search ALL libraries**: When enabled, the tool will search *all* of your owned movie/show libraries (music and photo libraries are excluded) for matches instead of limiting to the single selected library. Use this if you maintain multiple libraries (e.g. "4K Movies" + "HD Movies") and want ratings written wherever the item exists.
+10. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
+11. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress streams into the activity log, and when complete, a results dashboard replaces the preview showing exactly what was updated, skipped, or failed.
+12. **Optional – Clear All Ratings**: Found in the Danger Zone under Options. Removes all user ratings from the selected library (or all movie/TV libraries). Requires two confirmations before proceeding.
 
 ### Rating scale handling
 
@@ -86,11 +88,6 @@ When the "Dry run" checkbox is selected:
 
 Use a dry run first after large CSV exports or when tuning media type filters to ensure the updates match expectations.
 
-## **Command for creating an exe out of the python file**
-```
-pyinstaller --onefile --noconsole RatingsToPlexRatingsGUI.py
-```
-
 ## **Exporting Your IMDb Ratings:**
 1. Go to IMDb and sign into your account.
 2. Once you're signed in, click on your username in the top right corner and select "Your Ratings" from the dropdown menu.
@@ -103,7 +100,7 @@ pyinstaller --onefile --noconsole RatingsToPlexRatingsGUI.py
 
 ## **Requirements:**
 - Python 3.10+
-- Packages: `customtkinter`, `plexapi`
+- Packages: `plexapi`, `flask`
 
 Quick install (Windows batch provided):
 ```
@@ -111,5 +108,16 @@ install_requirements.bat
 ```
 or manually:
 ```
-pip install customtkinter plexapi
+pip install plexapi flask
+```
+
+## **Usage:**
+```
+python main.py
+```
+Or double-click `start.bat`. The web UI will open automatically at `http://localhost:5000`.
+
+To use a custom port:
+```
+python main.py --port 8080
 ```
