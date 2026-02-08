@@ -618,18 +618,26 @@
             .finally(function() { updatePreviewButton(); });
         }
 
+        function getEffectiveStatus(item) {
+            if ($('chk-force-overwrite').checked && item.status === 'unchanged') return 'will_update';
+            return item.status;
+        }
+
         function getFilteredItems() {
             if (previewFilter === 'all') return previewAllItems;
-            if (previewFilter === 'will_update') return previewAllItems.filter(function(i) { return i.status === 'will_update'; });
-            if (previewFilter === 'unchanged') return previewAllItems.filter(function(i) { return i.status === 'unchanged'; });
-            if (previewFilter === 'not_found') return previewAllItems.filter(function(i) { return !i.matched; });
-            return previewAllItems;
+            return previewAllItems.filter(function(i) {
+                var eff = getEffectiveStatus(i);
+                if (previewFilter === 'will_update') return eff === 'will_update';
+                if (previewFilter === 'unchanged') return eff === 'unchanged';
+                if (previewFilter === 'not_found') return !i.matched;
+                return true;
+            });
         }
 
         function updateFilterCounts() {
             var all = previewAllItems.length;
-            var willUpdate = previewAllItems.filter(function(i) { return i.status === 'will_update'; }).length;
-            var unchanged = previewAllItems.filter(function(i) { return i.status === 'unchanged'; }).length;
+            var willUpdate = previewAllItems.filter(function(i) { return getEffectiveStatus(i) === 'will_update'; }).length;
+            var unchanged = previewAllItems.filter(function(i) { return getEffectiveStatus(i) === 'unchanged'; }).length;
             var notFound = previewAllItems.filter(function(i) { return !i.matched; }).length;
             $('count-all').textContent = '(' + all + ')';
             $('count-will-update').textContent = '(' + willUpdate + ')';
@@ -683,8 +691,9 @@
         function renderPreviewCards(items) {
             var html = '';
             items.forEach(function(item) {
+                var effStatus = getEffectiveStatus(item);
                 var statusClass = item.matched
-                    ? (item.status === 'unchanged' ? 'status-unchanged' : 'status-update')
+                    ? (effStatus === 'unchanged' ? 'status-unchanged' : 'status-update')
                     : 'status-missing';
                 var statusText = ({
                     'will_update': 'Will Update',
@@ -693,7 +702,7 @@
                     'type_mismatch': 'Type Mismatch',
                     'invalid_rating': 'Invalid Rating',
                     'missing_fields': 'Missing Fields'
-                })[item.status] || item.status;
+                })[effStatus] || effStatus;
                 var posterHtml = item.thumb
                     ? '<img class="preview-poster" src="/api/plex-image?thumb=' + encodeURIComponent(item.thumb) + '" alt="" loading="lazy">'
                     : '<div class="preview-poster preview-no-poster">No Poster</div>';
@@ -715,6 +724,14 @@
             });
             $previewGrid.innerHTML = html;
         }
+
+        // ---- Force overwrite toggle updates preview ----
+        $('chk-force-overwrite').addEventListener('change', function() {
+            if (previewAllItems.length > 0) {
+                updateFilterCounts();
+                renderPreviewPage();
+            }
+        });
 
         // ---- Update button state ----
         function updateActionButton() {
