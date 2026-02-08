@@ -142,6 +142,7 @@
                     <button class="filter-btn" data-filter="unchanged">Unchanged <span class="filter-count" id="count-unchanged"></span></button>
                     <button class="filter-btn" data-filter="not_found">Not on Server <span class="filter-count" id="count-not-found"></span></button>
                 </div>
+                <div id="results-view" class="results-view" style="display:none;"></div>
                 <div id="preview-grid" class="preview-grid">
                     <div class="preview-empty">Connect to Plex and upload a CSV to preview changes</div>
                 </div>
@@ -360,7 +361,7 @@
                 var failMsg = isClear ? 'Clear failed.' : 'Update failed.';
                 setStatus(data.success ? doneMsg : failMsg, data.success ? 'connected' : 'error');
                 if (data.stats && Object.keys(data.stats).length > 0) {
-                    showSummaryCard(data.success, data.stats);
+                    showResultsView(data.success, data.stats);
                 }
             });
 
@@ -371,12 +372,21 @@
         }
         connectSSE();
 
-        // ---- Summary Card ----
-        function showSummaryCard(success, stats) {
+        // ---- Results View (replaces preview after update) ----
+        var $resultsView = $('results-view');
+
+        function showResultsView(success, stats) {
+            // Hide preview elements
+            $previewGrid.style.display = 'none';
+            $previewFilters.style.display = 'none';
+            $previewPagination.style.display = 'none';
+            $summaryCard.style.display = 'none';
+
             var isClear = stats.operation === 'clear';
             var isDry = stats.dry_run || false;
             var title, titleClass, statItems;
             titleClass = success ? 'success' : 'error';
+
             if (isClear) {
                 title = success ? 'Ratings Cleared' : 'Clear Failed';
                 statItems = [
@@ -391,13 +401,49 @@
                     { label: isDry ? 'Would update' : 'Updated', value: stats.updated || 0, cls: 'green' },
                     { label: 'Total items', value: stats.total_items || 0, cls: '' },
                     { label: 'Skipped unchanged', value: stats.skipped_unchanged || 0, cls: 'yellow' },
-                    { label: 'Not found in Plex', value: stats.not_found || 0, cls: stats.not_found ? 'red' : '' },
+                    { label: 'Not on server', value: stats.not_found || 0, cls: stats.not_found ? 'red' : '' },
                     { label: 'Invalid rating', value: stats.invalid_rating || 0, cls: stats.invalid_rating ? 'red' : '' },
                     { label: 'Type mismatch', value: stats.type_mismatch || 0, cls: stats.type_mismatch ? 'yellow' : '' },
                     { label: 'Rate failed', value: stats.rate_failed || 0, cls: stats.rate_failed ? 'red' : '' },
                     { label: 'Missing ID/fields', value: (stats.missing_id || 0) + (stats.missing_fields || 0), cls: (stats.missing_id || stats.missing_fields) ? 'red' : '' },
                 ];
             }
+
+            var html = '<div class="results-header">';
+            html += '<span class="results-title ' + titleClass + '">' + title + '</span>';
+            html += '<button class="btn-icon" id="btn-back-preview">Back to Preview</button>';
+            html += '</div>';
+            html += '<div class="results-stats-grid">';
+            statItems.forEach(function(item) {
+                html += '<div class="results-stat-card">';
+                html += '<div class="results-stat-value ' + item.cls + '">' + item.value + '</div>';
+                html += '<div class="results-stat-label">' + item.label + '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+
+            $resultsView.innerHTML = html;
+            $resultsView.style.display = 'flex';
+
+            $('btn-back-preview').addEventListener('click', function() {
+                $resultsView.style.display = 'none';
+                $previewGrid.style.display = '';
+                if (previewAllItems.length > 0) {
+                    $previewFilters.style.display = 'flex';
+                    renderPreviewPage();
+                }
+            });
+        }
+
+        // ---- Summary Card (kept for log area, unused now) ----
+        function showSummaryCard(success, stats) {
+            var isDry = stats.dry_run || false;
+            var title = isDry ? 'Dry Run Complete' : (success ? 'Update Complete' : 'Update Failed');
+            var titleClass = success ? 'success' : 'error';
+            var statItems = [
+                { label: isDry ? 'Would update' : 'Updated', value: stats.updated || 0, cls: 'green' },
+                { label: 'Total items', value: stats.total_items || 0, cls: '' },
+            ];
             var html = '<div class="summary-card-header">';
             html += '<span class="summary-card-title ' + titleClass + '">' + title + '</span>';
             html += '<button class="summary-card-dismiss" id="btn-dismiss-summary">&times;</button>';
@@ -766,7 +812,17 @@
             $progressFill.style.width = '0%';
             $progressText.textContent = '0 / ? processed';
 
+            // Hide results view if showing from previous run
+            $resultsView.style.display = 'none';
+            $previewGrid.style.display = '';
+
             var source = document.querySelector('input[name="source"]:checked').value;
+            var expectedTotal = 0;
+            if (previewAllItems.length > 0) {
+                expectedTotal = previewAllItems.filter(function(i) {
+                    return getEffectiveStatus(i) === 'will_update';
+                }).length;
+            }
             fetch('/api/update-ratings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -780,7 +836,8 @@
                     tvMovie: $('chk-tv-movie').checked,
                     markWatched: $chkWatched.checked,
                     forceOverwrite: $('chk-force-overwrite').checked,
-                    dryRun: $('chk-dry-run').checked
+                    dryRun: $('chk-dry-run').checked,
+                    expectedTotal: expectedTotal || undefined
                 })
             })
             .then(function(r) { return r.json(); })

@@ -56,16 +56,18 @@ _STAT_PATTERNS = [
 def _log_callback(message):
     """Controller calls this for every log line; we push into the SSE queue and track progress."""
     msg = message.rstrip("\n")
-    log_queue.put({"type": "log", "data": msg})
+
+    # Suppress individual "Skipping unchanged" messages from flooding the log
+    is_skip_unchanged = "Skipping unchanged rating" in msg
+    if not is_skip_unchanged:
+        log_queue.put({"type": "log", "data": msg})
 
     with progress_lock:
         if progress_state["total"] <= 0:
             return
 
-        # Detect individual item processed (for progress bar)
-        # Exclude "Marked as watched" — it's a secondary action on the same item
-        if any(p in msg for p in _PROGRESS_PATTERNS[:3]):
-            # Also skip lines with "type mismatch" keyword within Skipped messages
+        # Count actual updates and dry runs for progress (not unchanged skips)
+        if any(p in msg for p in _PROGRESS_PATTERNS[:2]):
             progress_state["current"] += 1
             log_queue.put({
                 "type": "progress",
@@ -250,8 +252,10 @@ def api_update_ratings():
         "-ALLLIBS-": all_libs,
     }
 
-    # Reset progress tracking
-    _reset_progress(csv_row_count)
+    # Reset progress tracking — use expected count of items that will actually
+    # produce work (from preview data) so the bar reflects real progress.
+    expected_total = data.get("expectedTotal")
+    _reset_progress(expected_total if expected_total else csv_row_count)
 
     def _update_thread():
         global update_running

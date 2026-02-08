@@ -778,6 +778,61 @@ input[type="radio"], input[type="checkbox"] {
     border-radius: 4px;
 }
 
+/* ---- Results View ---- */
+.results-view {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.results-title {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.results-title.success { color: var(--success); }
+.results-title.error { color: var(--error); }
+
+.results-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.results-stat-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.results-stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.results-stat-value.green { color: var(--success); }
+.results-stat-value.yellow { color: var(--warning); }
+.results-stat-value.red { color: var(--error); }
+
+.results-stat-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
 /* ---- Preview Filters ---- */
 .preview-filters {
     display: flex;
