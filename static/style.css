@@ -277,6 +277,48 @@ input[type="radio"], input[type="checkbox"] {
     opacity: 0.7;
 }
 
+.danger-zone {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--error);
+}
+
+.danger-zone label {
+    color: var(--error);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.btn-danger-sm {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--error);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-danger-sm:hover {
+    background: var(--error);
+    color: #fff;
+}
+
+.btn-danger-sm:disabled {
+    border-color: var(--bg-button-disabled);
+    color: var(--bg-button-disabled);
+    cursor: not-allowed;
+}
+
+.btn-danger-sm:disabled:hover {
+    background: transparent;
+}
+
 /* ---- Icon Buttons (toolbar) ---- */
 .btn-icon {
     padding: 4px 10px;

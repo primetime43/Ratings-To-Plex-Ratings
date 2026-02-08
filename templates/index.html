@@ -105,6 +105,11 @@
                             <label><input type="checkbox" id="chk-force-overwrite"> Force reapply ratings (ignore unchanged)</label>
                             <label><input type="checkbox" id="chk-dry-run"> Dry run (preview only)</label>
                         </div>
+
+                        <div class="danger-zone">
+                            <label>Danger Zone</label>
+                            <button id="btn-clear-ratings" class="btn btn-danger-sm" disabled>Clear All Ratings</button>
+                        </div>
                     </div>
                 </div>
 
@@ -175,6 +180,7 @@
         var $statusDot     = $('status-dot');
         var $btnLogin      = $('btn-login');
         var $btnUpdate     = $('btn-update');
+        var $btnClearRatings = $('btn-clear-ratings');
         var $serverSelect  = $('server-select');
         var $librarySelect = $('library-select');
         var $csvFile       = $('csv-file');
@@ -349,7 +355,10 @@
                 setUIEnabled(true);
                 $progressContainer.style.display = 'none';
                 $progressFill.style.width = '0%';
-                setStatus(data.success ? 'Update complete.' : 'Update failed.', data.success ? 'connected' : 'error');
+                var isClear = data.stats && data.stats.operation === 'clear';
+                var doneMsg = isClear ? 'Ratings cleared.' : 'Update complete.';
+                var failMsg = isClear ? 'Clear failed.' : 'Update failed.';
+                setStatus(data.success ? doneMsg : failMsg, data.success ? 'connected' : 'error');
                 if (data.stats && Object.keys(data.stats).length > 0) {
                     showSummaryCard(data.success, data.stats);
                 }
@@ -364,19 +373,31 @@
 
         // ---- Summary Card ----
         function showSummaryCard(success, stats) {
+            var isClear = stats.operation === 'clear';
             var isDry = stats.dry_run || false;
-            var title = isDry ? 'Dry Run Complete' : (success ? 'Update Complete' : 'Update Failed');
-            var titleClass = success ? 'success' : 'error';
-            var statItems = [
-                { label: isDry ? 'Would update' : 'Updated', value: stats.updated || 0, cls: 'green' },
-                { label: 'Total items', value: stats.total_items || 0, cls: '' },
-                { label: 'Skipped unchanged', value: stats.skipped_unchanged || 0, cls: 'yellow' },
-                { label: 'Not found in Plex', value: stats.not_found || 0, cls: stats.not_found ? 'red' : '' },
-                { label: 'Invalid rating', value: stats.invalid_rating || 0, cls: stats.invalid_rating ? 'red' : '' },
-                { label: 'Type mismatch', value: stats.type_mismatch || 0, cls: stats.type_mismatch ? 'yellow' : '' },
-                { label: 'Rate failed', value: stats.rate_failed || 0, cls: stats.rate_failed ? 'red' : '' },
-                { label: 'Missing ID/fields', value: (stats.missing_id || 0) + (stats.missing_fields || 0), cls: (stats.missing_id || stats.missing_fields) ? 'red' : '' },
-            ];
+            var title, titleClass, statItems;
+            titleClass = success ? 'success' : 'error';
+            if (isClear) {
+                title = success ? 'Ratings Cleared' : 'Clear Failed';
+                statItems = [
+                    { label: 'Ratings cleared', value: stats.cleared || 0, cls: 'green' },
+                    { label: 'No rating (skipped)', value: stats.skipped_no_rating || 0, cls: '' },
+                    { label: 'Failed', value: stats.failed || 0, cls: stats.failed ? 'red' : '' },
+                    { label: 'Total items', value: stats.total_items || 0, cls: '' },
+                ];
+            } else {
+                title = isDry ? 'Dry Run Complete' : (success ? 'Update Complete' : 'Update Failed');
+                statItems = [
+                    { label: isDry ? 'Would update' : 'Updated', value: stats.updated || 0, cls: 'green' },
+                    { label: 'Total items', value: stats.total_items || 0, cls: '' },
+                    { label: 'Skipped unchanged', value: stats.skipped_unchanged || 0, cls: 'yellow' },
+                    { label: 'Not found in Plex', value: stats.not_found || 0, cls: stats.not_found ? 'red' : '' },
+                    { label: 'Invalid rating', value: stats.invalid_rating || 0, cls: stats.invalid_rating ? 'red' : '' },
+                    { label: 'Type mismatch', value: stats.type_mismatch || 0, cls: stats.type_mismatch ? 'yellow' : '' },
+                    { label: 'Rate failed', value: stats.rate_failed || 0, cls: stats.rate_failed ? 'red' : '' },
+                    { label: 'Missing ID/fields', value: (stats.missing_id || 0) + (stats.missing_fields || 0), cls: (stats.missing_id || stats.missing_fields) ? 'red' : '' },
+                ];
+            }
             var html = '<div class="summary-card-header">';
             html += '<span class="summary-card-title ' + titleClass + '">' + title + '</span>';
             html += '<button class="summary-card-dismiss" id="btn-dismiss-summary">&times;</button>';
@@ -699,13 +720,14 @@
         function updateActionButton() {
             var hasLib = $chkAllLibs.checked || ($librarySelect.value && $librarySelect.value !== '');
             $btnUpdate.disabled = !(loggedIn && csvUploaded && hasLib);
+            $btnClearRatings.disabled = !(loggedIn && hasLib);
             updatePreviewButton();
         }
 
         // ---- Disable/enable UI ----
         function setUIEnabled(enabled) {
             var controls = [
-                $btnLogin, $btnUpdate, $serverSelect, $csvFile,
+                $btnLogin, $btnUpdate, $btnClearRatings, $serverSelect, $csvFile,
                 $('chk-movie'), $('chk-tv-series'), $('chk-tv-mini-series'), $('chk-tv-movie'),
                 $chkWatched, $('chk-force-overwrite'), $('chk-dry-run'), $chkAllLibs
             ];
@@ -742,6 +764,40 @@
                     markWatched: $chkWatched.checked,
                     forceOverwrite: $('chk-force-overwrite').checked,
                     dryRun: $('chk-dry-run').checked
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    appendLog('Error: ' + data.error);
+                    setStatus(data.error, 'error');
+                    setUIEnabled(true);
+                    $progressContainer.style.display = 'none';
+                }
+            })
+            .catch(function() {
+                setStatus('Request failed.', 'error');
+                setUIEnabled(true);
+                $progressContainer.style.display = 'none';
+            });
+        });
+        // ---- Clear all ratings ----
+        $btnClearRatings.addEventListener('click', function() {
+            var libName = $chkAllLibs.checked ? 'ALL movie/TV libraries' : ("'" + $librarySelect.value + "'");
+            if (!confirm('WARNING: This will permanently remove ALL user ratings from ' + libName + '.\n\nThis cannot be undone. Are you sure?')) return;
+            if (!confirm('Are you REALLY sure? All ratings in ' + libName + ' will be deleted.')) return;
+            setUIEnabled(false);
+            setStatus('Clearing ratings...', 'busy');
+            $summaryCard.style.display = 'none';
+            $progressContainer.style.display = 'block';
+            $progressFill.style.width = '0%';
+            $progressText.textContent = 'Scanning library...';
+            fetch('/api/clear-ratings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    library: $librarySelect.value,
+                    allLibraries: $chkAllLibs.checked
                 })
             })
             .then(function(r) { return r.json(); })

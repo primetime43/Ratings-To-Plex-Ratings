@@ -277,6 +277,90 @@ def api_update_ratings():
     return jsonify({"status": "update_started"})
 
 
+@app.route("/api/clear-ratings", methods=["POST"])
+def api_clear_ratings():
+    """Remove all user ratings from selected library/libraries."""
+    global update_running
+    with state_lock:
+        if update_running:
+            return jsonify({"error": "An operation is already in progress"}), 409
+        update_running = True
+
+    data = request.get_json(silent=True) or {}
+    selected_library = data.get("library", "")
+    all_libs = data.get("allLibraries", False)
+    if not all_libs and not selected_library:
+        with state_lock:
+            update_running = False
+        return jsonify({"error": "No library selected"}), 400
+
+    def _clear_thread():
+        global update_running
+        ctrl = _get_controller()
+        try:
+            server = ctrl.plex_connection.server
+            if not server:
+                log_queue.put({"type": "log", "data": "Error: Not connected to a Plex server"})
+                log_queue.put({"type": "update_complete", "data": json.dumps({"success": False, "stats": {}})})
+                return
+            if all_libs:
+                sections = [s for s in server.library.sections()
+                            if getattr(s, "type", "") in ("movie", "show")]
+            else:
+                sections = [server.library.section(selected_library)]
+
+            # Collect all items first for accurate progress
+            all_items = []
+            for sec in sections:
+                section_items = sec.all()
+                log_queue.put({"type": "log", "data": f"Scanning library: {sec.title} ({len(section_items)} items)"})
+                all_items.extend(section_items)
+
+            total = len(all_items)
+            log_queue.put({"type": "log", "data": f"Found {total} items across {len(sections)} library/libraries"})
+
+            total_cleared = 0
+            total_skipped = 0
+            total_failed = 0
+
+            for i, item in enumerate(all_items, 1):
+                existing = getattr(item, "userRating", None)
+                if existing is not None and existing > 0:
+                    try:
+                        key = f"/:/rate?key={item.ratingKey}&identifier=com.plexapp.plugins.library&rating=-1"
+                        server.query(key, method=server._session.put)
+                        total_cleared += 1
+                        log_queue.put({"type": "log", "data": f'Cleared rating for "{item.title} ({getattr(item, "year", "?")})" (was {existing})'})
+                    except Exception as e:
+                        total_failed += 1
+                        log_queue.put({"type": "log", "data": f'Failed to clear rating for "{item.title}": {e}'})
+                else:
+                    total_skipped += 1
+
+                log_queue.put({
+                    "type": "progress",
+                    "data": json.dumps({"current": i, "total": total}),
+                })
+
+            msg = f"Clear complete: {total_cleared} ratings cleared, {total_skipped} had no rating, {total_failed} failed (out of {total} items)"
+            log_queue.put({"type": "log", "data": msg})
+            log_queue.put({"type": "update_complete", "data": json.dumps({
+                "success": True,
+                "stats": {"operation": "clear", "cleared": total_cleared,
+                           "skipped_no_rating": total_skipped, "failed": total_failed,
+                           "total_items": total},
+            })})
+        except Exception as e:
+            log_queue.put({"type": "log", "data": f"Clear error: {e}"})
+            log_queue.put({"type": "update_complete", "data": json.dumps({"success": False, "stats": {}})})
+        finally:
+            with state_lock:
+                update_running = False
+
+    threading.Thread(target=_clear_thread, daemon=True).start()
+    return jsonify({"status": "clear_started"})
+
+
 @app.route("/api/preview-items", methods=["POST"])
 def api_preview_items():
     """Match CSV rows against Plex library and return preview data (read-only)."""
