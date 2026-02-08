@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ratings To Plex Ratings v{{ version }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Panel — single scrollable flow -->
+        <div class="left-panel">
+            <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+
+                <!-- Header -->
+                <div class="app-header">
+                    <div>
+                        <span id="header-label" class="app-title">IMDb &rarr; Plex Ratings</span>
+                        <span class="app-version">v{{ version }}</span>
+                    </div>
+                    <select id="theme-select" class="theme-toggle">
+                        <option value="dark" selected>Dark</option>
+                        <option value="light">Light</option>
+                    </select>
+                </div>
+
+                <!-- Scrollable sections -->
+                <div class="flow-sections">
+
+                    <!-- Step 1: Connect -->
+                    <div class="flow-section">
+                        <div class="step-header">
+                            <span class="step-number">1</span>
+                            <span class="step-title">Connect</span>
+                        </div>
+
+                        <label>Source Type</label>
+                        <div class="radio-group mb-12">
+                            <label><input type="radio" name="source" value="IMDb" checked> IMDb</label>
+                            <label><input type="radio" name="source" value="Letterboxd"> Letterboxd</label>
+                        </div>
+
+                        <button id="btn-login" class="btn btn-primary mb-8">Login to Plex</button>
+
+                        <div id="user-badge" class="user-badge" style="display:none;">
+                            Connected as: <strong id="username-text"></strong>
+                        </div>
+
+                        <label>Server</label>
+                        <select id="server-select" class="mb-8" disabled>
+                            <option value="">Select a server</option>
+                        </select>
+
+                        <label>Library</label>
+                        <select id="library-select" class="mb-8" disabled>
+                            <option value="">Select a library</option>
+                        </select>
+
+                        <div class="checkbox-group">
+                            <label><input type="checkbox" id="chk-all-libs"> Search ALL libraries</label>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Upload -->
+                    <div class="flow-section">
+                        <div class="step-header">
+                            <span class="step-number">2</span>
+                            <span class="step-title">Upload CSV</span>
+                        </div>
+
+                        <div id="drop-zone" class="drop-zone-area">
+                            <div class="drop-zone-text">Drag & drop CSV file here, or</div>
+                            <input type="file" id="csv-file" accept=".csv">
+                        </div>
+                        <div class="file-name" id="file-name">No file selected</div>
+
+                        <div id="csv-preview" style="display:none;">
+                            <div class="section-title mt-8">Preview</div>
+                            <div class="csv-table-wrapper">
+                                <table id="csv-table" class="csv-table"></table>
+                            </div>
+                            <div id="csv-row-count" class="file-name mt-8"></div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Options -->
+                    <div class="flow-section">
+                        <div class="step-header">
+                            <span class="step-number">3</span>
+                            <span class="step-title">Options</span>
+                        </div>
+
+                        <div id="filters-section">
+                            <label>Media Filters</label>
+                            <div class="checkbox-group mb-12" style="flex-wrap:wrap; gap:8px 16px;">
+                                <label><input type="checkbox" id="chk-movie" checked> Movie</label>
+                                <label><input type="checkbox" id="chk-tv-series" checked> TV Series</label>
+                                <label><input type="checkbox" id="chk-tv-mini-series" checked> TV Mini Series</label>
+                                <label><input type="checkbox" id="chk-tv-movie" checked> TV Movie</label>
+                            </div>
+                        </div>
+
+                        <div class="checkbox-group" style="flex-direction:column; gap:8px;">
+                            <label><input type="checkbox" id="chk-watched"> Mark watched if rating imported</label>
+                            <label><input type="checkbox" id="chk-force-overwrite"> Force reapply ratings (ignore unchanged)</label>
+                            <label><input type="checkbox" id="chk-dry-run"> Dry run (preview only)</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action pinned at bottom -->
+                <div class="action-section">
+                    <button id="btn-update" class="btn btn-primary" disabled>Update Plex Ratings</button>
+                    <div id="progress-container" class="progress-container" style="display:none;">
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                        <div id="progress-text" class="progress-text">0 / 0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="right-panel">
+            <!-- Preview Panel -->
+            <div class="panel preview-panel">
+                <div class="preview-toolbar">
+                    <span class="panel-header">Preview</span>
+                    <div class="preview-actions">
+                        <button id="btn-load-preview" class="btn-icon" disabled>Load Preview</button>
+                    </div>
+                </div>
+                <div id="preview-filters" class="preview-filters" style="display:none;">
+                    <button class="filter-btn active" data-filter="all">All <span class="filter-count" id="count-all"></span></button>
+                    <button class="filter-btn" data-filter="will_update">Will Update <span class="filter-count" id="count-will-update"></span></button>
+                    <button class="filter-btn" data-filter="unchanged">Unchanged <span class="filter-count" id="count-unchanged"></span></button>
+                    <button class="filter-btn" data-filter="not_found">Not on Server <span class="filter-count" id="count-not-found"></span></button>
+                </div>
+                <div id="preview-grid" class="preview-grid">
+                    <div class="preview-empty">Connect to Plex and upload a CSV to preview changes</div>
+                </div>
+                <div id="preview-pagination" class="preview-pagination" style="display:none;">
+                    <button id="prev-page" class="btn-icon">&larr; Prev</button>
+                    <span id="page-info">Page 1 of 1</span>
+                    <button id="next-page" class="btn-icon">Next &rarr;</button>
+                </div>
+            </div>
+            <!-- Activity Log -->
+            <div class="panel log-panel">
+                <div class="log-toolbar">
+                    <span class="panel-header">Activity Log</span>
+                    <div class="log-actions">
+                        <button id="btn-clear-log" class="btn-icon" title="Clear log">Clear</button>
+                        <button id="btn-export-log" class="btn-icon" title="Export log as text file">Export</button>
+                    </div>
+                </div>
+                <div id="summary-card" class="summary-card" style="display:none;"></div>
+                <div id="log-output"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Ready</span>
+    </div>
+
+    <script>
+    (function() {
+        var $ = function(id) { return document.getElementById(id); };
+        var $logOutput     = $('log-output');
+        var $statusText    = $('status-text');
+        var $statusDot     = $('status-dot');
+        var $btnLogin      = $('btn-login');
+        var $btnUpdate     = $('btn-update');
+        var $serverSelect  = $('server-select');
+        var $librarySelect = $('library-select');
+        var $csvFile       = $('csv-file');
+        var $fileName      = $('file-name');
+        var $themeSelect   = $('theme-select');
+        var $headerLabel   = $('header-label');
+        var $chkAllLibs    = $('chk-all-libs');
+        var $chkWatched    = $('chk-watched');
+        var $userBadge     = $('user-badge');
+        var $usernameText  = $('username-text');
+        var $progressContainer = $('progress-container');
+        var $progressFill  = $('progress-fill');
+        var $progressText  = $('progress-text');
+        var $summaryCard   = $('summary-card');
+        var $csvPreview    = $('csv-preview');
+        var $csvTable      = $('csv-table');
+        var $csvRowCount   = $('csv-row-count');
+        var $dropZone      = $('drop-zone');
+        var $filtersSection = $('filters-section');
+        var $previewGrid = $('preview-grid');
+        var $btnLoadPreview = $('btn-load-preview');
+
+        var csvUploaded = false;
+        var loggedIn = false;
+
+        // ---- Show/hide media filters based on source type ----
+        function updateFiltersVisibility() {
+            var src = (document.querySelector('input[name="source"]:checked') || {}).value || 'IMDb';
+            $filtersSection.style.display = src === 'IMDb' ? 'block' : 'none';
+        }
+        updateFiltersVisibility();
+
+        // ---- localStorage settings ----
+        var SETTINGS_KEY = 'rtp-settings';
+
+        function saveSettings() {
+            var s = {
+                theme: $themeSelect.value,
+                source: (document.querySelector('input[name="source"]:checked') || {}).value || 'IMDb',
+                movie: $('chk-movie').checked,
+                tvSeries: $('chk-tv-series').checked,
+                tvMiniSeries: $('chk-tv-mini-series').checked,
+                tvMovie: $('chk-tv-movie').checked,
+                markWatched: $chkWatched.checked,
+                forceOverwrite: $('chk-force-overwrite').checked,
+                dryRun: $('chk-dry-run').checked,
+                allLibraries: $chkAllLibs.checked
+            };
+            try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch(e) {}
+        }
+
+        function loadSettings() {
+            try {
+                var s = JSON.parse(localStorage.getItem(SETTINGS_KEY));
+                if (!s) return;
+                if (s.theme) {
+                    $themeSelect.value = s.theme;
+                    document.documentElement.setAttribute('data-theme', s.theme);
+                }
+                if (s.source) {
+                    var radio = document.querySelector('input[name="source"][value="' + s.source + '"]');
+                    if (radio) radio.checked = true;
+                    $headerLabel.innerHTML = s.source === 'IMDb'
+                        ? 'IMDb &rarr; Plex Ratings'
+                        : 'Letterboxd &rarr; Plex Ratings';
+                }
+                if (typeof s.movie === 'boolean') $('chk-movie').checked = s.movie;
+                if (typeof s.tvSeries === 'boolean') $('chk-tv-series').checked = s.tvSeries;
+                if (typeof s.tvMiniSeries === 'boolean') $('chk-tv-mini-series').checked = s.tvMiniSeries;
+                if (typeof s.tvMovie === 'boolean') $('chk-tv-movie').checked = s.tvMovie;
+                if (typeof s.markWatched === 'boolean') $chkWatched.checked = s.markWatched;
+                if (typeof s.forceOverwrite === 'boolean') $('chk-force-overwrite').checked = s.forceOverwrite;
+                if (typeof s.dryRun === 'boolean') $('chk-dry-run').checked = s.dryRun;
+                if (typeof s.allLibraries === 'boolean') {
+                    $chkAllLibs.checked = s.allLibraries;
+                    $librarySelect.disabled = s.allLibraries;
+                }
+                updateFiltersVisibility();
+            } catch(e) {}
+        }
+
+        function onSettingsChange() { saveSettings(); }
+        $themeSelect.addEventListener('change', onSettingsChange);
+        document.querySelectorAll('input[name="source"]').forEach(function(r) { r.addEventListener('change', onSettingsChange); });
+        [$('chk-movie'), $('chk-tv-series'), $('chk-tv-mini-series'), $('chk-tv-movie'),
+         $chkWatched, $('chk-force-overwrite'), $('chk-dry-run'), $chkAllLibs
+        ].forEach(function(el) { if (el) el.addEventListener('change', onSettingsChange); });
+
+        loadSettings();
+
+        // ---- Log colorization ----
+        function getLogClass(msg) {
+            if (/error|failed/i.test(msg) && !/Exported failures/i.test(msg)) return 'log-error';
+            if (msg.indexOf('[DRY RUN]') !== -1) return 'log-warning';
+            if (msg.indexOf('Updated Plex rating') !== -1 || msg.indexOf('Login successful') !== -1 || msg.indexOf('Successfully updated') !== -1) return 'log-success';
+            if (msg.indexOf('Skipping') !== -1 || msg.indexOf('Skipped') !== -1) return 'log-muted';
+            return '';
+        }
+
+        function appendLog(msg) {
+            var line = document.createElement('div');
+            line.className = 'log-line ' + getLogClass(msg);
+            line.textContent = msg;
+            $logOutput.appendChild(line);
+            $logOutput.scrollTop = $logOutput.scrollHeight;
+        }
+
+        function setStatus(text, state) {
+            $statusText.textContent = text;
+            $statusDot.className = 'status-dot' + (state ? ' ' + state : '');
+        }
+
+        // ---- Clear & Export log ----
+        $('btn-clear-log').addEventListener('click', function() {
+            $logOutput.innerHTML = '';
+            $summaryCard.style.display = 'none';
+        });
+
+        $('btn-export-log').addEventListener('click', function() {
+            var text = $logOutput.innerText;
+            var blob = new Blob([text], { type: 'text/plain' });
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'activity_log_' + new Date().toISOString().slice(0, 19).replace(/[T:]/g, '_') + '.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        });
+
+        // ---- SSE ----
+        function connectSSE() {
+            var es = new EventSource('/api/log-stream');
+
+            es.addEventListener('log', function(e) { appendLog(e.data); });
+
+            es.addEventListener('progress', function(e) {
+                var data = JSON.parse(e.data);
+                var pct = data.total > 0 ? Math.min(100, Math.round((data.current / data.total) * 100)) : 0;
+                $progressFill.style.width = pct + '%';
+                $progressText.textContent = data.current + ' / ' + data.total + ' processed';
+                setStatus('Updating: ' + data.current + ' / ' + data.total + ' items...', 'busy');
+            });
+
+            es.addEventListener('login_complete', function(e) {
+                var data = JSON.parse(e.data);
+                if (data.success) {
+                    loggedIn = true;
+                    $serverSelect.innerHTML = '<option value="">Select a server</option>';
+                    data.servers.forEach(function(s) {
+                        var opt = document.createElement('option');
+                        opt.value = s; opt.textContent = s;
+                        $serverSelect.appendChild(opt);
+                    });
+                    $serverSelect.disabled = false;
+                    setStatus('Servers loaded. Select a server.', 'connected');
+                    appendLog('Login successful. Servers loaded.');
+                    if (data.username) {
+                        $usernameText.textContent = data.username;
+                        $userBadge.style.display = 'flex';
+                    }
+                } else {
+                    setStatus('Login failed. Retry.', 'error');
+                    appendLog('Login failed or timed out.');
+                }
+                $btnLogin.disabled = false;
+                updateActionButton();
+            });
+
+            es.addEventListener('update_complete', function(e) {
+                var data = JSON.parse(e.data);
+                setUIEnabled(true);
+                $progressContainer.style.display = 'none';
+                $progressFill.style.width = '0%';
+                setStatus(data.success ? 'Update complete.' : 'Update failed.', data.success ? 'connected' : 'error');
+                if (data.stats && Object.keys(data.stats).length > 0) {
+                    showSummaryCard(data.success, data.stats);
+                }
+            });
+
+            es.onerror = function() {
+                setTimeout(connectSSE, 3000);
+                es.close();
+            };
+        }
+        connectSSE();
+
+        // ---- Summary Card ----
+        function showSummaryCard(success, stats) {
+            var isDry = stats.dry_run || false;
+            var title = isDry ? 'Dry Run Complete' : (success ? 'Update Complete' : 'Update Failed');
+            var titleClass = success ? 'success' : 'error';
+            var statItems = [
+                { label: isDry ? 'Would update' : 'Updated', value: stats.updated || 0, cls: 'green' },
+                { label: 'Total items', value: stats.total_items || 0, cls: '' },
+                { label: 'Skipped unchanged', value: stats.skipped_unchanged || 0, cls: 'yellow' },
+                { label: 'Not found in Plex', value: stats.not_found || 0, cls: stats.not_found ? 'red' : '' },
+                { label: 'Invalid rating', value: stats.invalid_rating || 0, cls: stats.invalid_rating ? 'red' : '' },
+                { label: 'Type mismatch', value: stats.type_mismatch || 0, cls: stats.type_mismatch ? 'yellow' : '' },
+                { label: 'Rate failed', value: stats.rate_failed || 0, cls: stats.rate_failed ? 'red' : '' },
+                { label: 'Missing ID/fields', value: (stats.missing_id || 0) + (stats.missing_fields || 0), cls: (stats.missing_id || stats.missing_fields) ? 'red' : '' },
+            ];
+            var html = '<div class="summary-card-header">';
+            html += '<span class="summary-card-title ' + titleClass + '">' + title + '</span>';
+            html += '<button class="summary-card-dismiss" id="btn-dismiss-summary">&times;</button>';
+            html += '</div><div class="summary-stats">';
+            statItems.forEach(function(item) {
+                html += '<div class="summary-stat"><span class="summary-stat-label">' + item.label + '</span>';
+                html += '<span class="summary-stat-value ' + item.cls + '">' + item.value + '</span></div>';
+            });
+            html += '</div>';
+            $summaryCard.innerHTML = html;
+            $summaryCard.style.display = 'block';
+            $('btn-dismiss-summary').addEventListener('click', function() { $summaryCard.style.display = 'none'; });
+        }
+
+        // ---- Theme ----
+        $themeSelect.addEventListener('change', function() {
+            document.documentElement.setAttribute('data-theme', this.value);
+        });
+
+        // ---- Source type change ----
+        document.querySelectorAll('input[name="source"]').forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                var src = this.value;
+                $headerLabel.innerHTML = src === 'IMDb'
+                    ? 'IMDb &rarr; Plex Ratings'
+                    : 'Letterboxd &rarr; Plex Ratings';
+                updateFiltersVisibility();
+            });
+        });
+
+        // ---- Login ----
+        $btnLogin.addEventListener('click', function() {
+            $btnLogin.disabled = true;
+            setStatus('Logging in to Plex... (check browser for OAuth)', 'busy');
+            appendLog('Initiating Plex login...');
+            fetch('/api/login', { method: 'POST' });
+        });
+
+        // ---- Server -> fetch libraries ----
+        $serverSelect.addEventListener('change', function() {
+            var server = this.value;
+            if (!server) return;
+            $librarySelect.innerHTML = '<option value="">Loading...</option>';
+            $librarySelect.disabled = true;
+            setStatus('Fetching libraries for ' + server + '...', 'busy');
+            appendLog('Loading libraries for server: ' + server);
+            fetch('/api/libraries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ server: server })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                $librarySelect.innerHTML = '<option value="">Select a library</option>';
+                if (data.libraries && data.libraries.length) {
+                    data.libraries.forEach(function(lib) {
+                        var opt = document.createElement('option');
+                        opt.value = lib; opt.textContent = lib;
+                        $librarySelect.appendChild(opt);
+                    });
+                    $librarySelect.disabled = $chkAllLibs.checked;
+                    setStatus('Libraries loaded.', 'connected');
+                } else {
+                    setStatus('No libraries found.', '');
+                }
+                updateActionButton();
+            })
+            .catch(function() { setStatus('Failed to load libraries.', 'error'); });
+        });
+
+        $librarySelect.addEventListener('change', function() {
+            if (this.value) setStatus("Library '" + this.value + "' selected.", 'connected');
+            updateActionButton();
+            if (canLoadPreview()) loadPreview();
+        });
+
+        $chkAllLibs.addEventListener('change', function() {
+            $librarySelect.disabled = this.checked;
+            if (this.checked) setStatus('All libraries mode enabled.', 'connected');
+            updateActionButton();
+        });
+
+        $chkWatched.addEventListener('change', function() {
+            if (this.checked) alert('WARNING: When enabled, any title that has its rating imported will be marked as watched. Use with caution.');
+        });
+
+        // ---- Drag-and-drop ----
+        ['dragenter', 'dragover'].forEach(function(evt) {
+            $dropZone.addEventListener(evt, function(e) { e.preventDefault(); e.stopPropagation(); $dropZone.classList.add('drag-over'); });
+        });
+        ['dragleave', 'drop'].forEach(function(evt) {
+            $dropZone.addEventListener(evt, function(e) { e.preventDefault(); e.stopPropagation(); $dropZone.classList.remove('drag-over'); });
+        });
+        $dropZone.addEventListener('drop', function(e) {
+            if (e.dataTransfer.files.length > 0) uploadFile(e.dataTransfer.files[0]);
+        });
+        $dropZone.addEventListener('click', function(e) {
+            if (e.target !== $csvFile) $csvFile.click();
+        });
+        $csvFile.addEventListener('change', function() {
+            if (this.files[0]) uploadFile(this.files[0]);
+        });
+
+        // ---- CSV upload + preview ----
+        function uploadFile(file) {
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                $fileName.textContent = 'Please select a .csv file';
+                return;
+            }
+            $fileName.textContent = 'Uploading: ' + file.name;
+            var formData = new FormData();
+            formData.append('file', file);
+            fetch('/api/upload-csv', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    $fileName.textContent = 'Upload failed: ' + data.error;
+                    csvUploaded = false;
+                } else {
+                    $fileName.textContent = data.filename + ' (' + data.rowCount + ' rows)';
+                    csvUploaded = true;
+                    appendLog('CSV loaded: ' + data.filename + ' (' + data.rowCount + ' rows)');
+                    setStatus('CSV loaded. Ready to update.', 'connected');
+                    fetchCsvPreview();
+                    if (canLoadPreview()) loadPreview();
+                }
+                updateActionButton();
+            })
+            .catch(function() { $fileName.textContent = 'Upload failed'; csvUploaded = false; updateActionButton(); });
+        }
+
+        function fetchCsvPreview() {
+            fetch('/api/csv-preview')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error || !data.headers) { $csvPreview.style.display = 'none'; return; }
+                var html = '<thead><tr>';
+                data.headers.forEach(function(h) { html += '<th>' + escapeHtml(h) + '</th>'; });
+                html += '</tr></thead><tbody>';
+                data.rows.forEach(function(row) {
+                    html += '<tr>';
+                    data.headers.forEach(function(h) { html += '<td>' + escapeHtml(row[h] || '') + '</td>'; });
+                    html += '</tr>';
+                });
+                html += '</tbody>';
+                $csvTable.innerHTML = html;
+                $csvRowCount.textContent = 'Showing ' + data.rows.length + ' of ' + data.totalRows + ' rows';
+                $csvPreview.style.display = 'block';
+            })
+            .catch(function() { $csvPreview.style.display = 'none'; });
+        }
+
+        function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ---- Preview ----
+        var previewAllItems = [];
+        var previewFilter = 'all';
+        var previewPage = 1;
+        var PREVIEW_PAGE_SIZE = 30;
+        var $previewFilters = $('preview-filters');
+        var $previewPagination = $('preview-pagination');
+        var $pageInfo = $('page-info');
+
+        function canLoadPreview() {
+            return loggedIn && csvUploaded && ($chkAllLibs.checked || ($librarySelect.value && $librarySelect.value !== ''));
+        }
+
+        function updatePreviewButton() {
+            if ($btnLoadPreview) $btnLoadPreview.disabled = !canLoadPreview();
+        }
+
+        $btnLoadPreview.addEventListener('click', loadPreview);
+
+        function loadPreview() {
+            if (!canLoadPreview()) return;
+            $previewGrid.innerHTML = '<div class="preview-loading">Scanning Plex library...</div>';
+            $previewFilters.style.display = 'none';
+            $previewPagination.style.display = 'none';
+            $btnLoadPreview.disabled = true;
+            var source = (document.querySelector('input[name="source"]:checked') || {}).value || 'IMDb';
+            fetch('/api/preview-items', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    source: source,
+                    library: $librarySelect.value,
+                    allLibraries: $chkAllLibs.checked,
+                    movie: $('chk-movie').checked,
+                    tvSeries: $('chk-tv-series').checked,
+                    tvMiniSeries: $('chk-tv-mini-series').checked,
+                    tvMovie: $('chk-tv-movie').checked
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    $previewGrid.innerHTML = '<div class="preview-empty">' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+                previewAllItems = data.items || [];
+                previewFilter = 'all';
+                previewPage = 1;
+                updateFilterCounts();
+                $previewFilters.style.display = 'flex';
+                document.querySelectorAll('.filter-btn').forEach(function(b) {
+                    b.classList.toggle('active', b.getAttribute('data-filter') === 'all');
+                });
+                renderPreviewPage();
+                appendLog('Preview: ' + data.totalMatched + ' matched, ' + data.totalUnmatched + ' not on server, ' + data.totalItems + ' total rows');
+            })
+            .catch(function() {
+                $previewGrid.innerHTML = '<div class="preview-empty">Failed to load preview</div>';
+            })
+            .finally(function() { updatePreviewButton(); });
+        }
+
+        function getFilteredItems() {
+            if (previewFilter === 'all') return previewAllItems;
+            if (previewFilter === 'will_update') return previewAllItems.filter(function(i) { return i.status === 'will_update'; });
+            if (previewFilter === 'unchanged') return previewAllItems.filter(function(i) { return i.status === 'unchanged'; });
+            if (previewFilter === 'not_found') return previewAllItems.filter(function(i) { return !i.matched; });
+            return previewAllItems;
+        }
+
+        function updateFilterCounts() {
+            var all = previewAllItems.length;
+            var willUpdate = previewAllItems.filter(function(i) { return i.status === 'will_update'; }).length;
+            var unchanged = previewAllItems.filter(function(i) { return i.status === 'unchanged'; }).length;
+            var notFound = previewAllItems.filter(function(i) { return !i.matched; }).length;
+            $('count-all').textContent = '(' + all + ')';
+            $('count-will-update').textContent = '(' + willUpdate + ')';
+            $('count-unchanged').textContent = '(' + unchanged + ')';
+            $('count-not-found').textContent = '(' + notFound + ')';
+        }
+
+        function renderPreviewPage() {
+            var filtered = getFilteredItems();
+            var totalPages = Math.max(1, Math.ceil(filtered.length / PREVIEW_PAGE_SIZE));
+            if (previewPage > totalPages) previewPage = totalPages;
+            if (previewPage < 1) previewPage = 1;
+            var start = (previewPage - 1) * PREVIEW_PAGE_SIZE;
+            var pageItems = filtered.slice(start, start + PREVIEW_PAGE_SIZE);
+            if (filtered.length === 0) {
+                $previewGrid.innerHTML = '<div class="preview-empty">No items match this filter</div>';
+                $previewPagination.style.display = 'none';
+                return;
+            }
+            renderPreviewCards(pageItems);
+            if (totalPages > 1) {
+                $previewPagination.style.display = 'flex';
+                $pageInfo.textContent = 'Page ' + previewPage + ' of ' + totalPages + ' (' + filtered.length + ' items)';
+                $('prev-page').disabled = previewPage <= 1;
+                $('next-page').disabled = previewPage >= totalPages;
+            } else {
+                $previewPagination.style.display = 'none';
+            }
+        }
+
+        // Filter buttons
+        document.querySelectorAll('.filter-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                previewFilter = this.getAttribute('data-filter');
+                previewPage = 1;
+                document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                renderPreviewPage();
+            });
+        });
+
+        // Pagination
+        $('prev-page').addEventListener('click', function() {
+            if (previewPage > 1) { previewPage--; renderPreviewPage(); $previewGrid.scrollTop = 0; }
+        });
+        $('next-page').addEventListener('click', function() {
+            var totalPages = Math.ceil(getFilteredItems().length / PREVIEW_PAGE_SIZE);
+            if (previewPage < totalPages) { previewPage++; renderPreviewPage(); $previewGrid.scrollTop = 0; }
+        });
+
+        function renderPreviewCards(items) {
+            var html = '';
+            items.forEach(function(item) {
+                var statusClass = item.matched
+                    ? (item.status === 'unchanged' ? 'status-unchanged' : 'status-update')
+                    : 'status-missing';
+                var statusText = ({
+                    'will_update': 'Will Update',
+                    'unchanged': 'Unchanged',
+                    'not_found': 'Not on Server',
+                    'type_mismatch': 'Type Mismatch',
+                    'invalid_rating': 'Invalid Rating',
+                    'missing_fields': 'Missing Fields'
+                })[item.status] || item.status;
+                var posterHtml = item.thumb
+                    ? '<img class="preview-poster" src="/api/plex-image?thumb=' + encodeURIComponent(item.thumb) + '" alt="" loading="lazy">'
+                    : '<div class="preview-poster preview-no-poster">No Poster</div>';
+                var ratingHtml = '';
+                if (item.matched && item.newRating !== null) {
+                    var cur = item.currentRating !== null ? item.currentRating.toFixed(1) : '\u2014';
+                    ratingHtml = '<div class="preview-rating">' + cur + ' <span class="rating-arrow">\u2192</span> ' + item.newRating.toFixed(1) + '</div>';
+                } else if (item.newRating !== null) {
+                    ratingHtml = '<div class="preview-rating">New: ' + item.newRating.toFixed(1) + '</div>';
+                }
+                html += '<div class="preview-card ' + statusClass + '">';
+                html += posterHtml;
+                html += '<div class="preview-info">';
+                html += '<div class="preview-title" title="' + escapeHtml(item.title || 'Unknown') + '">' + escapeHtml(item.title || 'Unknown') + '</div>';
+                html += '<div class="preview-year">' + escapeHtml(item.year || '') + '</div>';
+                html += ratingHtml;
+                html += '<div class="preview-status-badge ' + statusClass + '">' + statusText + '</div>';
+                html += '</div></div>';
+            });
+            $previewGrid.innerHTML = html;
+        }
+
+        // ---- Update button state ----
+        function updateActionButton() {
+            var hasLib = $chkAllLibs.checked || ($librarySelect.value && $librarySelect.value !== '');
+            $btnUpdate.disabled = !(loggedIn && csvUploaded && hasLib);
+            updatePreviewButton();
+        }
+
+        // ---- Disable/enable UI ----
+        function setUIEnabled(enabled) {
+            var controls = [
+                $btnLogin, $btnUpdate, $serverSelect, $csvFile,
+                $('chk-movie'), $('chk-tv-series'), $('chk-tv-mini-series'), $('chk-tv-movie'),
+                $chkWatched, $('chk-force-overwrite'), $('chk-dry-run'), $chkAllLibs
+            ];
+            document.querySelectorAll('input[name="source"]').forEach(function(r) { r.disabled = !enabled; });
+            controls.forEach(function(el) { if (el) el.disabled = !enabled; });
+            if (enabled) {
+                $librarySelect.disabled = $chkAllLibs.checked;
+                if (!loggedIn) { $serverSelect.disabled = true; $librarySelect.disabled = true; }
+                updateActionButton();
+            }
+        }
+
+        // ---- Start update ----
+        $btnUpdate.addEventListener('click', function() {
+            setUIEnabled(false);
+            setStatus('Updating Plex ratings...', 'busy');
+            $summaryCard.style.display = 'none';
+            $progressContainer.style.display = 'block';
+            $progressFill.style.width = '0%';
+            $progressText.textContent = '0 / ? processed';
+
+            var source = document.querySelector('input[name="source"]:checked').value;
+            fetch('/api/update-ratings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source: source,
+                    library: $librarySelect.value,
+                    allLibraries: $chkAllLibs.checked,
+                    movie: $('chk-movie').checked,
+                    tvSeries: $('chk-tv-series').checked,
+                    tvMiniSeries: $('chk-tv-mini-series').checked,
+                    tvMovie: $('chk-tv-movie').checked,
+                    markWatched: $chkWatched.checked,
+                    forceOverwrite: $('chk-force-overwrite').checked,
+                    dryRun: $('chk-dry-run').checked
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    appendLog('Error: ' + data.error);
+                    setStatus(data.error, 'error');
+                    setUIEnabled(true);
+                    $progressContainer.style.display = 'none';
+                }
+            })
+            .catch(function() {
+                setStatus('Request failed.', 'error');
+                setUIEnabled(true);
+                $progressContainer.style.display = 'none';
+            });
+        });
+    })();
+    </script>
+</body>
+</html>
