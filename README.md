@@ -1,7 +1,6 @@
 # Table of Contents
 - [IMDb Ratings To Plex Ratings](#imdb-ratings-to-plex-ratings)
 - [How it works](#how-it-works)
-- [Command for creating an exe out of the python file](#command-for-creating-an-exe-out-of-the-python-file)
 - [Exporting Your IMDb Ratings](#exporting-your-imdb-ratings)
 - [Exporting Your Letterboxd Ratings](#exporting-your-letterboxd-ratings)
 - [Requirements](#requirements)

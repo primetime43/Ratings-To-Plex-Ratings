@@ -410,7 +410,8 @@ class RatingsToPlexRatingsController:
                 try:
                     rate_limiter.acquire()
                     found.rate(rating=plex_rating)
-                    msg = f'Updated Plex rating for "{found.title} ({found.year})" to {plex_rating}'
+                    star_form = plex_rating / 2.0
+                    msg = f'Updated Plex rating for "{found.title} ({found.year})" to {plex_rating} ({star_form:.1f}\u2605)'
                     self.log_message(msg, log_filename)
                     if mark_watched:
                         rate_limiter.acquire()
@@ -557,7 +558,7 @@ class RatingsToPlexRatingsController:
                 try:
                     if dry_run:
                         star_form = plex_rating / 2.0
-                        preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}\u2605)'
                         if values.get("-WATCHED-", False):
                             preview_entry += " and mark watched"
                         preview_samples.append(preview_entry)
@@ -566,7 +567,7 @@ class RatingsToPlexRatingsController:
                     else:
                         found_movie.rate(rating=plex_rating)
                         star_form = plex_rating / 2.0
-                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                        message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}\u2605)'
                         logger.info(message)
                         self.log_message(message, log_filename)
                         if values.get("-WATCHED-", False):
@@ -708,7 +709,7 @@ class RatingsToPlexRatingsController:
                     try:
                         if dry_run:
                             star_form = plex_rating / 2.0
-                            preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                            preview_entry = f'[DRY RUN] Would update "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}\u2605)'
                             if values.get("-WATCHED-", False):
                                 preview_entry += " and mark watched"
                             self.log_message(preview_entry, log_filename)
@@ -716,7 +717,7 @@ class RatingsToPlexRatingsController:
                         else:
                             found_movie.rate(rating=plex_rating)
                             star_form = plex_rating / 2.0
-                            message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating}'
+                            message = f'Updated Plex rating for "{found_movie.title} ({found_movie.year})" to {plex_rating} ({star_form:.1f}\u2605)'
                             logger.info(message)
                             self.log_message(message, log_filename)
                             if values.get("-WATCHED-", False):

@@ -552,7 +552,7 @@ def api_log_stream():
 
 def run_web(port=5000):
     """Launch the Flask web GUI and open a browser."""
-    webbrowser.open(f"http://localhost:{port}")
+    threading.Timer(1.0, webbrowser.open, args=[f"http://localhost:{port}"]).start()
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
 
 
