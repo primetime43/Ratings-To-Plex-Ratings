@@ -3,6 +3,7 @@
 - [How it works](#how-it-works)
 - [Exporting Your IMDb Ratings](#exporting-your-imdb-ratings)
 - [Exporting Your Letterboxd Ratings](#exporting-your-letterboxd-ratings)
+- [Getting Started](#getting-started)
 - [Requirements](#requirements)
 
 # **IMDb & Letterboxd Ratings To Plex Ratings**
@@ -101,23 +102,26 @@ Use a dry run first after large CSV exports or when tuning media type filters to
 1. Go [here to letterboxd](https://letterboxd.com/settings/data/) and export your data.
 2. Once exported, use the ratings.csv file in that zip file in the program to update the ratings.
 
-## **Requirements:**
-- Python 3.10+
-- Packages: `plexapi`, `flask`
+## **Getting Started**
 
-Install dependencies:
-```
-pip install -r requirements.txt
-```
-Or on Windows, double-click `install_requirements.bat`.
-
-## **Usage:**
-```
-python main.py
-```
-Or double-click `start.bat`. The web UI will open automatically at `http://localhost:5000`.
+1. **Download** the latest release from the [Releases page](https://github.com/primetime43/Ratings-To-Plex-Ratings/releases) and extract the source code zip.
+2. **Install Python 3.10+** if you don't already have it.
+3. **Install dependencies:**
+   ```
+   pip install -r requirements.txt
+   ```
+   Or on Windows, double-click `install_requirements.bat`.
+4. **Run the app:**
+   ```
+   python main.py
+   ```
+   Or double-click `start.bat`. The web UI will open automatically at `http://localhost:5000`.
 
 To use a custom port:
 ```
 python main.py --port 8080
 ```
+
+## **Requirements:**
+- Python 3.10+
+- Packages: `plexapi`, `flask`
