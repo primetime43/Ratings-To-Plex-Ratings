@@ -1,0 +1,10 @@
+.git
+.github
+__pycache__
+*.log
+uploads/
+*.bat
+.python-version
+.gitignore
+LICENSE
+README.md
