@@ -108,6 +108,9 @@ Use a dry run first after large CSV exports or when tuning media type filters to
 
 ### Option 1: Docker (recommended)
 
+Docker Hub:
+[`primetime43/ratings-to-plex-ratings`](https://hub.docker.com/r/primetime43/ratings-to-plex-ratings)
+
 Pull and run the image from Docker Hub:
 ```
 docker run -p 5000:5000 primetime43/ratings-to-plex-ratings:latest
