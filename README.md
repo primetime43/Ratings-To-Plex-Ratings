@@ -4,6 +4,8 @@
 - [Exporting Your IMDb Ratings](#exporting-your-imdb-ratings)
 - [Exporting Your Letterboxd Ratings](#exporting-your-letterboxd-ratings)
 - [Getting Started](#getting-started)
+  - [Docker (recommended)](#option-1-docker-recommended)
+  - [Run from source](#option-2-run-from-source)
 - [Requirements](#requirements)
 
 # **IMDb & Letterboxd Ratings To Plex Ratings**
@@ -104,6 +106,21 @@ Use a dry run first after large CSV exports or when tuning media type filters to
 
 ## **Getting Started**
 
+### Option 1: Docker (recommended)
+
+Pull and run the image from Docker Hub:
+```
+docker run -p 5000:5000 primetime43/ratings-to-plex-ratings:latest
+```
+Then open `http://localhost:5000` in your browser.
+
+To use a custom port:
+```
+docker run -p 8080:8080 primetime43/ratings-to-plex-ratings:latest --port 8080
+```
+
+### Option 2: Run from source
+
 1. **Download** the latest release from the [Releases page](https://github.com/primetime43/Ratings-To-Plex-Ratings/releases) and extract the source code zip.
 2. **Install Python 3.10+** if you don't already have it.
 3. **Install dependencies:**
@@ -123,5 +140,5 @@ python main.py --port 8080
 ```
 
 ## **Requirements:**
-- Python 3.10+
-- Packages: `plexapi`, `flask`
+- **Docker:** No additional requirements — just Docker installed.
+- **From source:** Python 3.10+, packages: `plexapi`, `flask`
