@@ -747,7 +747,7 @@
         });
 
         function renderPreviewCards(items) {
-            var html = '';
+            var fragment = document.createDocumentFragment();
             items.forEach(function(item) {
                 var effStatus = getEffectiveStatus(item);
                 var statusClass = item.matched
@@ -761,26 +761,67 @@
                     'invalid_rating': 'Invalid Rating',
                     'missing_fields': 'Missing Fields'
                 })[effStatus] || effStatus;
-                var posterHtml = item.thumb
-                    ? '<img class="preview-poster" src="/api/plex-image?thumb=' + encodeURIComponent(item.thumb) + '" alt="" loading="lazy">'
-                    : '<div class="preview-poster preview-no-poster">No Poster</div>';
-                var ratingHtml = '';
+
+                var card = document.createElement('div');
+                card.classList.add('preview-card', statusClass);
+
+                var poster;
+                if (item.thumb) {
+                    poster = document.createElement('img');
+                    poster.className = 'preview-poster';
+                    poster.src = '/api/plex-image?thumb=' + encodeURIComponent(item.thumb);
+                    poster.alt = '';
+                    poster.loading = 'lazy';
+                } else {
+                    poster = document.createElement('div');
+                    poster.className = 'preview-poster preview-no-poster';
+                    poster.textContent = 'No Poster';
+                }
+                card.appendChild(poster);
+
+                var info = document.createElement('div');
+                info.className = 'preview-info';
+
+                var titleElement = document.createElement('div');
+                var titleText = item.title || 'Unknown';
+                titleElement.className = 'preview-title';
+                titleElement.title = titleText;
+                titleElement.textContent = titleText;
+                info.appendChild(titleElement);
+
+                var yearElement = document.createElement('div');
+                yearElement.className = 'preview-year';
+                yearElement.textContent = item.year || '';
+                info.appendChild(yearElement);
+
                 if (item.matched && item.newRating !== null) {
                     var cur = item.currentRating !== null ? item.currentRating.toFixed(1) : '\u2014';
-                    ratingHtml = '<div class="preview-rating">' + cur + ' <span class="rating-arrow">\u2192</span> ' + item.newRating.toFixed(1) + '</div>';
+                    var matchedRating = document.createElement('div');
+                    matchedRating.className = 'preview-rating';
+                    matchedRating.appendChild(document.createTextNode(cur + ' '));
+                    var arrow = document.createElement('span');
+                    arrow.className = 'rating-arrow';
+                    arrow.textContent = '\u2192';
+                    matchedRating.appendChild(arrow);
+                    matchedRating.appendChild(document.createTextNode(' ' + item.newRating.toFixed(1)));
+                    info.appendChild(matchedRating);
                 } else if (item.newRating !== null) {
-                    ratingHtml = '<div class="preview-rating">New: ' + item.newRating.toFixed(1) + '</div>';
+                    var newRating = document.createElement('div');
+                    newRating.className = 'preview-rating';
+                    newRating.textContent = 'New: ' + item.newRating.toFixed(1);
+                    info.appendChild(newRating);
                 }
-                html += '<div class="preview-card ' + statusClass + '">';
-                html += posterHtml;
-                html += '<div class="preview-info">';
-                html += '<div class="preview-title" title="' + escapeHtml(item.title || 'Unknown') + '">' + escapeHtml(item.title || 'Unknown') + '</div>';
-                html += '<div class="preview-year">' + escapeHtml(item.year || '') + '</div>';
-                html += ratingHtml;
-                html += '<div class="preview-status-badge ' + statusClass + '">' + statusText + '</div>';
-                html += '</div></div>';
+
+                var statusBadge = document.createElement('div');
+                statusBadge.classList.add('preview-status-badge', statusClass);
+                statusBadge.textContent = statusText;
+                info.appendChild(statusBadge);
+
+                card.appendChild(info);
+                fragment.appendChild(card);
             });
-            $previewGrid.innerHTML = html;
+            $previewGrid.textContent = '';
+            $previewGrid.appendChild(fragment);
         }
 
         // ---- Force overwrite toggle updates preview ----
