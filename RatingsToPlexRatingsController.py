@@ -241,7 +241,7 @@ class RatingsToPlexRatingsController:
         if dry_run:
             self.log_message('DRY RUN ENABLED: No changes will be written to Plex.', log_filename)
         try:
-            with open(filepath, 'r', encoding='utf-8') as file:
+            with open(filepath, 'r', encoding='utf-8-sig', newline='') as file:
                 csv_reader = csv.DictReader(file)
                 if values['-IMDB-']:
                     return self.update_ratings_from_imdb(csv_reader, library_section, values, log_filename, filepath, dry_run=dry_run)

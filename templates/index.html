@@ -563,6 +563,7 @@
             $fileName.textContent = 'Uploading: ' + file.name;
             var formData = new FormData();
             formData.append('file', file);
+            formData.append('source', (document.querySelector('input[name="source"]:checked') || {}).value || 'IMDb');
             fetch('/api/upload-csv', { method: 'POST', headers: apiHeaders(), body: formData })
             .then(function(r) { return r.json(); })
             .then(function(data) {

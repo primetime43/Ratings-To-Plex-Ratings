@@ -9,12 +9,20 @@ import secrets
 import ssl
 import threading
 import urllib.request
+import uuid
 import webbrowser
 from flask import Flask, render_template, request, jsonify, Response
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 from version import __version__
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
+CSV_REQUIRED_HEADERS = {
+    "IMDb": {"Const", "Title", "Title Type", "Your Rating", "Year"},
+    "Letterboxd": {"Name", "Year", "Rating"},
+}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = Flask(__name__)
@@ -22,6 +30,7 @@ app.config.update(
     CSRF_TOKEN=secrets.token_urlsafe(32),
     REQUIRE_AUTH=False,
     ACCESS_TOKEN="",
+    MAX_CONTENT_LENGTH=MAX_CSV_UPLOAD_BYTES,
 )
 
 
@@ -81,6 +90,85 @@ def _protect_requests():
             return jsonify({"error": "Cross-origin request rejected"}), 403
 
     return None
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def _upload_too_large(_error):
+    return jsonify({
+        "error": f"CSV file exceeds the {MAX_CSV_UPLOAD_BYTES // (1024 * 1024)} MB upload limit"
+    }), 413
+
+
+def _validate_csv_upload(path, requested_source):
+    if requested_source and requested_source not in CSV_REQUIRED_HEADERS:
+        raise ValueError("Unsupported ratings source")
+
+    with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        headers = list(reader.fieldnames or [])
+        if not headers:
+            raise ValueError("CSV file is empty or has no header row")
+        if len(headers) != len(set(headers)):
+            raise ValueError("CSV file contains duplicate column headers")
+
+        if requested_source:
+            sources_to_check = [requested_source]
+        else:
+            sources_to_check = list(CSV_REQUIRED_HEADERS)
+
+        detected_source = next(
+            (
+                source
+                for source in sources_to_check
+                if CSV_REQUIRED_HEADERS[source].issubset(headers)
+            ),
+            None,
+        )
+        if not detected_source:
+            if requested_source:
+                missing = sorted(CSV_REQUIRED_HEADERS[requested_source].difference(headers))
+                raise ValueError(
+                    f"Invalid {requested_source} CSV; missing required columns: {', '.join(missing)}"
+                )
+            raise ValueError(
+                "Unsupported CSV format; expected an IMDb or Letterboxd ratings export"
+            )
+
+        row_count = sum(1 for _ in reader)
+        return detected_source, row_count
+
+
+def _discard_upload(path):
+    """Delete a generated upload only when it resolves inside UPLOAD_DIR."""
+    if not path:
+        return
+    upload_root = os.path.realpath(UPLOAD_DIR)
+    candidate = os.path.realpath(path)
+    try:
+        if os.path.commonpath([upload_root, candidate]) != upload_root:
+            return
+    except ValueError:
+        return
+    try:
+        if os.path.isfile(candidate):
+            os.remove(candidate)
+    except OSError:
+        app.logger.warning("Could not remove discarded upload: %s", candidate)
+
+
+def _cleanup_old_uploads(keep_path):
+    """Remove prior regular files from the application-owned upload directory."""
+    keep = os.path.realpath(keep_path)
+    try:
+        with os.scandir(UPLOAD_DIR) as entries:
+            for entry in entries:
+                if entry.is_file(follow_symlinks=False) and os.path.realpath(entry.path) != keep:
+                    try:
+                        os.remove(entry.path)
+                    except OSError:
+                        app.logger.warning("Could not remove old upload: %s", entry.path)
+    except OSError:
+        app.logger.warning("Could not scan the upload directory for old files")
 
 # --------------- Shared state ---------------
 log_queue = queue.Queue()
@@ -251,21 +339,43 @@ def api_libraries():
 @app.route("/api/upload-csv", methods=["POST"])
 def api_upload_csv():
     global uploaded_csv_path, csv_row_count
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    f = request.files["file"]
-    if not f.filename:
-        return jsonify({"error": "Empty filename"}), 400
-    save_path = os.path.join(UPLOAD_DIR, f.filename)
-    f.save(save_path)
-    uploaded_csv_path = save_path
-    # Count data rows (excluding header)
-    try:
-        with open(save_path, "r", encoding="utf-8") as fh:
-            csv_row_count = max(sum(1 for _ in fh) - 1, 0)
-    except Exception:
-        csv_row_count = 0
-    return jsonify({"filename": f.filename, "path": save_path, "rowCount": csv_row_count})
+    with state_lock:
+        if update_running:
+            return jsonify({"error": "Cannot replace the CSV while an operation is running"}), 409
+        if "file" not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+
+        uploaded_file = request.files["file"]
+        if not uploaded_file.filename:
+            return jsonify({"error": "Empty filename"}), 400
+
+        display_filename = secure_filename(uploaded_file.filename)
+        if not display_filename or os.path.splitext(display_filename)[1].lower() != ".csv":
+            return jsonify({"error": "Only .csv files are accepted"}), 400
+
+        requested_source = (request.form.get("source") or "").strip()
+        storage_filename = f"{uuid.uuid4().hex}.csv"
+        save_path = os.path.join(UPLOAD_DIR, storage_filename)
+
+        try:
+            uploaded_file.save(save_path)
+            detected_source, row_count = _validate_csv_upload(save_path, requested_source)
+        except (UnicodeDecodeError, csv.Error, ValueError) as error:
+            _discard_upload(save_path)
+            return jsonify({"error": str(error)}), 400
+        except OSError:
+            _discard_upload(save_path)
+            app.logger.exception("Unable to store uploaded CSV")
+            return jsonify({"error": "Unable to store uploaded CSV"}), 500
+
+        uploaded_csv_path = save_path
+        csv_row_count = row_count
+        _cleanup_old_uploads(keep_path=save_path)
+        return jsonify({
+            "filename": display_filename,
+            "rowCount": csv_row_count,
+            "source": detected_source,
+        })
 
 
 @app.route("/api/csv-preview", methods=["GET"])
@@ -273,7 +383,7 @@ def api_csv_preview():
     if not uploaded_csv_path or not os.path.isfile(uploaded_csv_path):
         return jsonify({"error": "No CSV uploaded"}), 400
     try:
-        with open(uploaded_csv_path, "r", encoding="utf-8") as fh:
+        with open(uploaded_csv_path, "r", encoding="utf-8-sig", newline="") as fh:
             reader = csv.DictReader(fh)
             headers = list(reader.fieldnames or [])
             rows = []
@@ -486,7 +596,7 @@ def api_preview_items():
             except Exception:
                 pass
 
-        with open(uploaded_csv_path, "r", encoding="utf-8") as fh:
+        with open(uploaded_csv_path, "r", encoding="utf-8-sig", newline="") as fh:
             reader = csv.DictReader(fh)
             for row in reader:
                 if max_items > 0 and len(items) >= max_items:
@@ -535,7 +645,7 @@ def api_preview_items():
             except Exception:
                 pass
 
-        with open(uploaded_csv_path, "r", encoding="utf-8") as fh:
+        with open(uploaded_csv_path, "r", encoding="utf-8-sig", newline="") as fh:
             reader = csv.DictReader(fh)
             for row in reader:
                 if max_items > 0 and len(items) >= max_items:

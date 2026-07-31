@@ -47,7 +47,7 @@ Here's a brief rundown of the steps:
 
 3. **Select a library**: Select the library to retrieve and update the ratings for this library.
 
-4. **Select a CSV file**: Choose a CSV exported from IMDb (Your Ratings export) or Letterboxd (Data export → ratings.csv). The application parses it and stages rating updates.
+4. **Select a CSV file**: Choose a CSV exported from IMDb (Your Ratings export) or Letterboxd (Data export → ratings.csv). Uploads are limited to 10 MB and must contain the required export columns. The application parses it and stages rating updates.
 
 5. **Choose media types (IMDb only)**: Toggle which IMDb "Title Type" entries to process: Movie, TV Series, TV Mini Series, TV Movie. (Letterboxd export is movies only.)
 6. **Preview changes**: Once connected and a CSV is uploaded, the preview panel automatically shows poster art, current vs. new ratings, and match status for every item. Filter by "Will Update", "Unchanged", or "Not on Server" and page through results.
