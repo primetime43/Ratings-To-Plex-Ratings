@@ -3,6 +3,7 @@
 __pycache__
 *.log
 uploads/
+backups/
 *.bat
 .python-version
 .gitignore

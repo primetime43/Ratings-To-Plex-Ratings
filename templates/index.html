@@ -428,6 +428,10 @@
                 html += '</div>';
             });
             html += '</div>';
+            if (isClear && stats.backup_id) {
+                var backupUrl = '/api/rating-backups/' + encodeURIComponent(stats.backup_id);
+                html += '<a class="btn btn-primary" href="' + backupUrl + '">Download pre-clear backup (' + (stats.backed_up || 0) + ' ratings)</a>';
+            }
 
             $resultsView.innerHTML = html;
             $resultsView.style.display = 'flex';
@@ -864,38 +868,72 @@
             });
         });
         // ---- Clear all ratings ----
-        $btnClearRatings.addEventListener('click', function() {
-            var libName = $chkAllLibs.checked ? 'ALL movie/TV libraries' : ("'" + $librarySelect.value + "'");
-            if (!confirm('WARNING: This will permanently remove ALL user ratings from ' + libName + '.\n\nThis cannot be undone. Are you sure?')) return;
-            if (!confirm('Are you REALLY sure? All ratings in ' + libName + ' will be deleted.')) return;
+        $btnClearRatings.addEventListener('click', async function() {
+            var selectedLibrary = $librarySelect.value;
+            var allLibraries = $chkAllLibs.checked;
+            var libName = allLibraries ? 'ALL movie/TV libraries' : ("'" + selectedLibrary + "'");
+            if (!confirm('WARNING: This will permanently remove ALL user ratings from ' + libName + '.\n\nA backup will be created first. Continue?')) return;
+
             setUIEnabled(false);
-            setStatus('Clearing ratings...', 'busy');
-            $summaryCard.style.display = 'none';
-            $progressContainer.style.display = 'block';
-            $progressFill.style.width = '0%';
-            $progressText.textContent = 'Scanning library...';
-            fetch('/api/clear-ratings', {
-                method: 'POST',
-                headers: apiHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                    library: $librarySelect.value,
-                    allLibraries: $chkAllLibs.checked
-                })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.error) {
-                    appendLog('Error: ' + data.error);
-                    setStatus(data.error, 'error');
-                    setUIEnabled(true);
-                    $progressContainer.style.display = 'none';
+            setStatus('Preparing secure confirmation...', 'busy');
+
+            try {
+                var prepareResponse = await fetch('/api/clear-ratings/prepare', {
+                    method: 'POST',
+                    headers: apiHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({
+                        library: selectedLibrary,
+                        allLibraries: allLibraries
+                    })
+                });
+                var preparation = await prepareResponse.json();
+                if (!prepareResponse.ok || preparation.error) {
+                    throw new Error(preparation.error || 'Could not prepare clear confirmation');
                 }
-            })
-            .catch(function() {
-                setStatus('Request failed.', 'error');
+
+                var typedLibrary = prompt(
+                    'To confirm clearing ' + preparation.scope + ', type exactly:\n\n' +
+                    preparation.confirmationText + '\n\nThis confirmation expires in ' +
+                    preparation.expiresIn + ' seconds.'
+                );
+                if (typedLibrary === null) {
+                    setUIEnabled(true);
+                    setStatus('Clear cancelled. Nothing was changed.', 'connected');
+                    return;
+                }
+                if (typedLibrary !== preparation.confirmationText) {
+                    setUIEnabled(true);
+                    setStatus('Confirmation did not match. Nothing was changed.', 'error');
+                    appendLog('Clear cancelled: confirmation text did not match.');
+                    return;
+                }
+
+                setStatus('Backing up and clearing ratings...', 'busy');
+                $summaryCard.style.display = 'none';
+                $progressContainer.style.display = 'block';
+                $progressFill.style.width = '0%';
+                $progressText.textContent = 'Scanning library and creating backup...';
+
+                var clearResponse = await fetch('/api/clear-ratings', {
+                    method: 'POST',
+                    headers: apiHeaders({ 'Content-Type': 'application/json' }),
+                    body: JSON.stringify({
+                        library: selectedLibrary,
+                        allLibraries: allLibraries,
+                        confirmationToken: preparation.confirmationToken,
+                        confirmationLibrary: typedLibrary
+                    })
+                });
+                var clearResult = await clearResponse.json();
+                if (!clearResponse.ok || clearResult.error) {
+                    throw new Error(clearResult.error || 'Clear request failed');
+                }
+            } catch (error) {
+                appendLog('Error: ' + error.message);
+                setStatus(error.message, 'error');
                 setUIEnabled(true);
                 $progressContainer.style.display = 'none';
-            });
+            }
         });
     })();
     </script>

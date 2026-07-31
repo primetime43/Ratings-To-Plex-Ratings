@@ -56,7 +56,7 @@ Here's a brief rundown of the steps:
 9. **Optional – Search ALL libraries**: When enabled, the tool will search *all* of your owned movie/show libraries (music and photo libraries are excluded) for matches instead of limiting to the single selected library. Use this if you maintain multiple libraries (e.g. "4K Movies" + "HD Movies") and want ratings written wherever the item exists.
 10. **Optional – Dry run (preview only)**: If enabled, the tool will NOT write anything to Plex. Instead it will simulate the run and log messages like `"[DRY RUN] Would update ..."` so you can verify counts and a sample before committing. Failure/unmatched CSV export is also skipped in dry-run.
 11. **Click "Update Plex Ratings"**: Starts the background (or simulated) update process. Progress streams into the activity log, and when complete, a results dashboard replaces the preview showing exactly what was updated, skipped, or failed.
-12. **Optional – Clear All Ratings**: Found in the Danger Zone under Options. Removes all user ratings from the selected library (or all movie/TV libraries). Requires two confirmations before proceeding.
+12. **Optional – Clear All Ratings**: Found in the Danger Zone under Options. Removes all user ratings from the selected library (or all movie/TV libraries). The server issues a single-use confirmation that expires after 60 seconds and requires typing the exact library name (`ALL LIBRARIES` for cross-library clearing). Before changing Plex, the app exports every current user rating to a downloadable CSV backup; clearing is aborted if that backup cannot be created.
 
 ### Rating scale handling
 

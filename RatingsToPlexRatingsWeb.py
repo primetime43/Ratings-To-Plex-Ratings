@@ -8,22 +8,26 @@ import re
 import secrets
 import ssl
 import threading
+import time
 import urllib.request
 import uuid
 import webbrowser
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 from RatingsToPlexRatingsController import RatingsToPlexRatingsController
 from version import __version__
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
 MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
+CLEAR_CONFIRMATION_TTL_SECONDS = 60
 CSV_REQUIRED_HEADERS = {
     "IMDb": {"Const", "Title", "Title Type", "Your Rating", "Year"},
     "Letterboxd": {"Name", "Year", "Rating"},
 }
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(BACKUP_DIR, exist_ok=True)
 
 app = Flask(__name__)
 app.config.update(
@@ -177,6 +181,10 @@ uploaded_csv_path = None
 csv_row_count = 0
 update_running = False
 state_lock = threading.Lock()
+clear_confirmation_lock = threading.Lock()
+clear_confirmations = {}
+backup_lock = threading.Lock()
+rating_backups = {}
 
 # Progress tracking (written by log callback, read by update thread)
 progress_lock = threading.Lock()
@@ -268,6 +276,119 @@ def _reset_progress(total):
         progress_state["current"] = 0
         progress_state["total"] = total
         progress_state["stats"] = {}
+
+
+def _server_confirmation_id(server):
+    identifier = getattr(server, "machineIdentifier", None)
+    return str(identifier) if identifier else f"object:{id(server)}"
+
+
+def _create_clear_confirmation(server, selected_library, all_libraries, confirmation_text):
+    token = secrets.token_urlsafe(32)
+    now = time.monotonic()
+    with clear_confirmation_lock:
+        expired = [
+            existing_token
+            for existing_token, details in clear_confirmations.items()
+            if details["expires_at"] <= now
+        ]
+        for existing_token in expired:
+            clear_confirmations.pop(existing_token, None)
+        clear_confirmations[token] = {
+            "expires_at": now + CLEAR_CONFIRMATION_TTL_SECONDS,
+            "server_id": _server_confirmation_id(server),
+            "library": selected_library,
+            "all_libraries": all_libraries,
+            "confirmation_text": confirmation_text,
+        }
+    return token
+
+
+def _consume_clear_confirmation(token, server, selected_library, all_libraries, confirmation_text):
+    if not token or not isinstance(token, str):
+        return False, "A clear confirmation token is required", 403
+
+    now = time.monotonic()
+    with clear_confirmation_lock:
+        details = clear_confirmations.get(token)
+        if not details:
+            return False, "Clear confirmation is invalid or has already been used", 403
+        if details["expires_at"] <= now:
+            clear_confirmations.pop(token, None)
+            return False, "Clear confirmation has expired; request a new confirmation", 410
+
+        valid_scope = (
+            details["server_id"] == _server_confirmation_id(server)
+            and details["library"] == selected_library
+            and details["all_libraries"] is all_libraries
+            and details["confirmation_text"] == confirmation_text
+        )
+        if not valid_scope:
+            return False, "Clear confirmation does not match the selected server and library", 403
+
+        clear_confirmations.pop(token, None)
+        return True, "", 200
+
+
+def _positive_user_rating(item):
+    value = getattr(item, "userRating", None)
+    try:
+        return value if value is not None and float(value) > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _csv_safe(value):
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
+
+
+def _create_ratings_backup(items_with_libraries):
+    backup_id = uuid.uuid4().hex
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    download_name = f"PlexRatingsBackup_{timestamp}_{backup_id[:8]}.csv"
+    final_path = os.path.join(BACKUP_DIR, f"{backup_id}.csv")
+    temporary_path = final_path + ".tmp"
+    backed_up = 0
+
+    try:
+        with open(temporary_path, "w", encoding="utf-8", newline="") as backup_file:
+            fieldnames = [
+                "Library", "RatingKey", "MediaType", "Title", "Year", "UserRating", "Guid"
+            ]
+            writer = csv.DictWriter(backup_file, fieldnames=fieldnames)
+            writer.writeheader()
+            for library_name, item in items_with_libraries:
+                rating = _positive_user_rating(item)
+                if rating is None:
+                    continue
+                writer.writerow({
+                    "Library": _csv_safe(library_name),
+                    "RatingKey": _csv_safe(getattr(item, "ratingKey", "")),
+                    "MediaType": _csv_safe(getattr(item, "type", "")),
+                    "Title": _csv_safe(getattr(item, "title", "")),
+                    "Year": _csv_safe(getattr(item, "year", "")),
+                    "UserRating": rating,
+                    "Guid": _csv_safe(getattr(item, "guid", "")),
+                })
+                backed_up += 1
+        os.replace(temporary_path, final_path)
+    except Exception:
+        try:
+            if os.path.isfile(temporary_path):
+                os.remove(temporary_path)
+        except OSError:
+            pass
+        raise
+
+    with backup_lock:
+        rating_backups[backup_id] = {
+            "path": final_path,
+            "download_name": download_name,
+        }
+    return backup_id, download_name, backed_up
 
 
 def _get_controller():
@@ -461,32 +582,99 @@ def api_update_ratings():
     return jsonify({"status": "update_started"})
 
 
-@app.route("/api/clear-ratings", methods=["POST"])
-def api_clear_ratings():
-    """Remove all user ratings from selected library/libraries."""
-    global update_running
+@app.route("/api/clear-ratings/prepare", methods=["POST"])
+def api_prepare_clear_ratings():
+    """Issue a short-lived confirmation scoped to the active server and selection."""
+    data = request.get_json(silent=True) or {}
+    selected_library = data.get("library", "")
+    all_libs = data.get("allLibraries") is True
+    if not isinstance(selected_library, str):
+        return jsonify({"error": "Invalid library selection"}), 400
+    selected_library = selected_library.strip()
+    if not all_libs and not selected_library:
+        return jsonify({"error": "No library selected"}), 400
+
     with state_lock:
         if update_running:
             return jsonify({"error": "An operation is already in progress"}), 409
-        update_running = True
 
+    ctrl = _get_controller()
+    if not ctrl.plex_connection or not ctrl.plex_connection.server:
+        return jsonify({"error": "Not connected to a Plex server"}), 400
+    server = ctrl.plex_connection.server
+
+    try:
+        if all_libs:
+            sections = [
+                section for section in server.library.sections()
+                if getattr(section, "type", "") in ("movie", "show")
+            ]
+            if not sections:
+                return jsonify({"error": "No movie or TV libraries found"}), 400
+            confirmation_text = "ALL LIBRARIES"
+            scope_label = "all movie and TV libraries"
+        else:
+            section = server.library.section(selected_library)
+            if getattr(section, "type", "") not in ("movie", "show"):
+                return jsonify({"error": "Selected library cannot contain user ratings"}), 400
+            selected_library = section.title
+            confirmation_text = selected_library
+            scope_label = f'library "{selected_library}"'
+    except Exception:
+        return jsonify({"error": "Selected library was not found"}), 404
+
+    token = _create_clear_confirmation(
+        server,
+        selected_library,
+        all_libs,
+        confirmation_text,
+    )
+    return jsonify({
+        "confirmationToken": token,
+        "confirmationText": confirmation_text,
+        "expiresIn": CLEAR_CONFIRMATION_TTL_SECONDS,
+        "scope": scope_label,
+    })
+
+
+@app.route("/api/clear-ratings", methods=["POST"])
+def api_clear_ratings():
+    """Remove ratings only after a scoped, single-use confirmation."""
+    global update_running
     data = request.get_json(silent=True) or {}
     selected_library = data.get("library", "")
-    all_libs = data.get("allLibraries", False)
+    all_libs = data.get("allLibraries") is True
+    confirmation_token = data.get("confirmationToken", "")
+    confirmation_text = data.get("confirmationLibrary", "")
+
+    if not isinstance(selected_library, str) or not isinstance(confirmation_text, str):
+        return jsonify({"error": "Invalid clear confirmation"}), 400
+    selected_library = selected_library.strip()
     if not all_libs and not selected_library:
-        with state_lock:
-            update_running = False
         return jsonify({"error": "No library selected"}), 400
+
+    ctrl = _get_controller()
+    if not ctrl.plex_connection or not ctrl.plex_connection.server:
+        return jsonify({"error": "Not connected to a Plex server"}), 400
+    server = ctrl.plex_connection.server
+
+    with state_lock:
+        if update_running:
+            return jsonify({"error": "An operation is already in progress"}), 409
+        valid, error_message, error_status = _consume_clear_confirmation(
+            confirmation_token,
+            server,
+            selected_library,
+            all_libs,
+            confirmation_text,
+        )
+        if not valid:
+            return jsonify({"error": error_message}), error_status
+        update_running = True
 
     def _clear_thread():
         global update_running
-        ctrl = _get_controller()
         try:
-            server = ctrl.plex_connection.server
-            if not server:
-                log_queue.put({"type": "log", "data": "Error: Not connected to a Plex server"})
-                log_queue.put({"type": "update_complete", "data": json.dumps({"success": False, "stats": {}})})
-                return
             if all_libs:
                 sections = [s for s in server.library.sections()
                             if getattr(s, "type", "") in ("movie", "show")]
@@ -494,22 +682,45 @@ def api_clear_ratings():
                 sections = [server.library.section(selected_library)]
 
             # Collect all items first for accurate progress
-            all_items = []
+            items_with_libraries = []
             for sec in sections:
                 section_items = sec.all()
                 log_queue.put({"type": "log", "data": f"Scanning library: {sec.title} ({len(section_items)} items)"})
-                all_items.extend(section_items)
+                items_with_libraries.extend((sec.title, item) for item in section_items)
 
-            total = len(all_items)
+            total = len(items_with_libraries)
             log_queue.put({"type": "log", "data": f"Found {total} items across {len(sections)} library/libraries"})
+
+            try:
+                backup_id, backup_filename, backed_up = _create_ratings_backup(items_with_libraries)
+            except Exception as error:
+                app.logger.exception("Could not create ratings backup before clear")
+                log_queue.put({
+                    "type": "log",
+                    "data": f"Clear aborted: ratings backup could not be created: {error}",
+                })
+                log_queue.put({"type": "update_complete", "data": json.dumps({
+                    "success": False,
+                    "stats": {
+                        "operation": "clear",
+                        "backup_failed": True,
+                        "total_items": total,
+                    },
+                })})
+                return
+
+            log_queue.put({
+                "type": "log",
+                "data": f"Backed up {backed_up} ratings before clearing",
+            })
 
             total_cleared = 0
             total_skipped = 0
             total_failed = 0
 
-            for i, item in enumerate(all_items, 1):
-                existing = getattr(item, "userRating", None)
-                if existing is not None and existing > 0:
+            for i, (_library_name, item) in enumerate(items_with_libraries, 1):
+                existing = _positive_user_rating(item)
+                if existing is not None:
                     try:
                         key = f"/:/rate?key={item.ratingKey}&identifier=com.plexapp.plugins.library&rating=-1"
                         server.query(key, method=server._session.put)
@@ -529,20 +740,39 @@ def api_clear_ratings():
             msg = f"Clear complete: {total_cleared} ratings cleared, {total_skipped} had no rating, {total_failed} failed (out of {total} items)"
             log_queue.put({"type": "log", "data": msg})
             log_queue.put({"type": "update_complete", "data": json.dumps({
-                "success": True,
+                "success": total_failed == 0,
                 "stats": {"operation": "clear", "cleared": total_cleared,
                            "skipped_no_rating": total_skipped, "failed": total_failed,
-                           "total_items": total},
+                           "total_items": total, "backed_up": backed_up,
+                           "backup_id": backup_id, "backup_filename": backup_filename},
             })})
         except Exception as e:
             log_queue.put({"type": "log", "data": f"Clear error: {e}"})
-            log_queue.put({"type": "update_complete", "data": json.dumps({"success": False, "stats": {}})})
+            log_queue.put({"type": "update_complete", "data": json.dumps({
+                "success": False, "stats": {"operation": "clear"}
+            })})
         finally:
             with state_lock:
                 update_running = False
 
     threading.Thread(target=_clear_thread, daemon=True).start()
     return jsonify({"status": "clear_started"})
+
+
+@app.route("/api/rating-backups/<backup_id>", methods=["GET"])
+def api_download_rating_backup(backup_id):
+    with backup_lock:
+        backup = rating_backups.get(backup_id)
+    if not backup or not os.path.isfile(backup["path"]):
+        return jsonify({"error": "Rating backup was not found"}), 404
+    response = send_file(
+        backup["path"],
+        as_attachment=True,
+        download_name=backup["download_name"],
+        mimetype="text/csv",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/api/preview-items", methods=["POST"])
