@@ -238,16 +238,6 @@ def _log_callback(message):
                     "total": progress_state["total"],
                 }),
             })
-        elif "Skipped " in msg and "type mismatch" in msg:
-            progress_state["current"] += 1
-            log_queue.put({
-                "type": "progress",
-                "data": json.dumps({
-                    "current": progress_state["current"],
-                    "total": progress_state["total"],
-                }),
-            })
-
         # Parse final summary line
         m = re.search(r"Successfully updated (\d+) out of (\d+)", msg)
         if m:
@@ -777,7 +767,7 @@ def api_download_rating_backup(backup_id):
 
 @app.route("/api/preview-items", methods=["POST"])
 def api_preview_items():
-    """Match CSV rows against Plex library and return preview data (read-only)."""
+    """Build and serialize the same import plan used by the update operation."""
     ctrl = _get_controller()
     if not ctrl.plex_connection or not ctrl.plex_connection.server:
         return jsonify({"error": "Not connected to Plex"}), 400
@@ -787,136 +777,44 @@ def api_preview_items():
     data = request.get_json(silent=True) or {}
     source = data.get("source", "IMDb")
     library_name = data.get("library", "")
-    all_libs = data.get("allLibraries", False)
-    max_items = data.get("maxItems", 0)
-
-    server = ctrl.plex_connection.server
+    all_libs = data.get("allLibraries") is True
+    if source not in ("IMDb", "Letterboxd"):
+        return jsonify({"error": "Unsupported ratings source"}), 400
     try:
-        if all_libs:
-            sections = [s for s in server.library.sections()
-                        if getattr(s, "type", "") in ("movie", "show")]
-        elif library_name:
-            sections = [server.library.section(library_name)]
-        else:
-            return jsonify({"error": "No library selected"}), 400
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        max_items = max(0, int(data.get("maxItems", 0)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid preview item limit"}), 400
 
-    items = []
+    values = {
+        "-IMDB-": source == "IMDb",
+        "-LETTERBOXD-": source == "Letterboxd",
+        "-MOVIE-": data.get("movie", True),
+        "-TVSERIES-": data.get("tvSeries", True),
+        "-TVMINISERIES-": data.get("tvMiniSeries", True),
+        "-TVMOVIE-": data.get("tvMovie", True),
+        "-WATCHED-": data.get("markWatched", False),
+        "-FORCEOVERWRITE-": data.get("forceOverwrite", False),
+        "-DRYRUN-": True,
+        "-ALLLIBS-": all_libs,
+    }
 
-    if source == "IMDb":
-        selected_types = []
-        if data.get("movie", True):
-            selected_types.append("Movie")
-        if data.get("tvSeries", True):
-            selected_types.append("TV Series")
-        if data.get("tvMiniSeries", True):
-            selected_types.append("TV Mini Series")
-        if data.get("tvMovie", True):
-            selected_types.append("TV Movie")
+    try:
+        plan = ctrl.build_import_plan(
+            uploaded_csv_path,
+            library_name,
+            values,
+            max_items=max_items,
+        )
+    except Exception as error:
+        return jsonify({"error": str(error)}), 400
 
-        guid_lookup = {}
-        for sec in sections:
-            try:
-                for item in sec.all():
-                    if getattr(item, "guid", None):
-                        guid_lookup[item.guid] = item
-                    for guid in getattr(item, "guids", []) or []:
-                        guid_lookup[guid.id] = item
-            except Exception:
-                pass
-
-        with open(uploaded_csv_path, "r", encoding="utf-8-sig", newline="") as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
-                if max_items > 0 and len(items) >= max_items:
-                    break
-                title_type = row.get("Title Type", "")
-                if title_type not in selected_types:
-                    continue
-                imdb_id = row.get("Const", "")
-                title = row.get("Title", "")
-                year = row.get("Year", "")
-                rating_raw = row.get("Your Rating", "")
-                try:
-                    new_rating = float((rating_raw or "").strip())
-                except (ValueError, TypeError):
-                    items.append({"title": title, "year": year, "matched": False,
-                                  "status": "invalid_rating", "newRating": None,
-                                  "currentRating": None, "thumb": None})
-                    continue
-                found = guid_lookup.get(f"imdb://{imdb_id}")
-                if found:
-                    current = getattr(found, "userRating", None)
-                    try:
-                        current = float(current) if current is not None else None
-                    except (ValueError, TypeError):
-                        current = None
-                    status = "unchanged" if (current is not None and abs(current - new_rating) < 0.01) else "will_update"
-                    items.append({"title": found.title,
-                                  "year": str(getattr(found, "year", year)),
-                                  "matched": True, "status": status,
-                                  "newRating": new_rating, "currentRating": current,
-                                  "thumb": getattr(found, "thumb", None)})
-                else:
-                    items.append({"title": title, "year": year, "matched": False,
-                                  "status": "not_found", "newRating": new_rating,
-                                  "currentRating": None, "thumb": None})
-
-    elif source == "Letterboxd":
-        title_lookup = {}
-        for sec in sections:
-            try:
-                for item in sec.all():
-                    if getattr(item, "type", None) != "movie":
-                        continue
-                    key = (item.title.lower().strip(), str(item.year))
-                    title_lookup.setdefault(key, item)
-            except Exception:
-                pass
-
-        with open(uploaded_csv_path, "r", encoding="utf-8-sig", newline="") as fh:
-            reader = csv.DictReader(fh)
-            for row in reader:
-                if max_items > 0 and len(items) >= max_items:
-                    break
-                name = (row.get("Name") or "").strip()
-                year = (row.get("Year") or "").strip()
-                rating_str = (row.get("Rating") or "").strip()
-                if not name or not year or not rating_str:
-                    items.append({"title": name, "year": year, "matched": False,
-                                  "status": "missing_fields", "newRating": None,
-                                  "currentRating": None, "thumb": None})
-                    continue
-                try:
-                    new_rating = float(rating_str) * 2
-                except (ValueError, TypeError):
-                    items.append({"title": name, "year": year, "matched": False,
-                                  "status": "invalid_rating", "newRating": None,
-                                  "currentRating": None, "thumb": None})
-                    continue
-                found = title_lookup.get((name.lower(), year))
-                if found:
-                    current = getattr(found, "userRating", None)
-                    try:
-                        current = float(current) if current is not None else None
-                    except (ValueError, TypeError):
-                        current = None
-                    status = "unchanged" if (current is not None and abs(current - new_rating) < 0.01) else "will_update"
-                    items.append({"title": found.title,
-                                  "year": str(getattr(found, "year", year)),
-                                  "matched": True, "status": status,
-                                  "newRating": new_rating, "currentRating": current,
-                                  "thumb": getattr(found, "thumb", None)})
-                else:
-                    items.append({"title": name, "year": year, "matched": False,
-                                  "status": "not_found", "newRating": new_rating,
-                                  "currentRating": None, "thumb": None})
-
-    matched = sum(1 for it in items if it["matched"])
-    return jsonify({"items": items, "totalMatched": matched,
-                    "totalUnmatched": len(items) - matched,
-                    "totalItems": csv_row_count})
+    return jsonify({
+        "items": [item.to_preview_dict() for item in plan.items],
+        "totalMatched": plan.matched_count,
+        "totalUnmatched": plan.unmatched_count,
+        "totalItems": plan.total_rows,
+        "plannedUpdates": plan.update_count,
+    })
 
 
 @app.route("/api/plex-image")

@@ -650,7 +650,9 @@
                     movie: $('chk-movie').checked,
                     tvSeries: $('chk-tv-series').checked,
                     tvMiniSeries: $('chk-tv-mini-series').checked,
-                    tvMovie: $('chk-tv-movie').checked
+                    tvMovie: $('chk-tv-movie').checked,
+                    forceOverwrite: $('chk-force-overwrite').checked,
+                    markWatched: $chkWatched.checked
                 })
             })
             .then(function(r) { return r.json(); })
@@ -677,7 +679,6 @@
         }
 
         function getEffectiveStatus(item) {
-            if ($('chk-force-overwrite').checked && item.status === 'unchanged') return 'will_update';
             return item.status;
         }
 
@@ -750,16 +751,17 @@
             var fragment = document.createDocumentFragment();
             items.forEach(function(item) {
                 var effStatus = getEffectiveStatus(item);
-                var statusClass = item.matched
-                    ? (effStatus === 'unchanged' ? 'status-unchanged' : 'status-update')
-                    : 'status-missing';
+                var statusClass = effStatus === 'will_update'
+                    ? 'status-update'
+                    : (effStatus === 'unchanged' ? 'status-unchanged' : 'status-missing');
                 var statusText = ({
                     'will_update': 'Will Update',
                     'unchanged': 'Unchanged',
                     'not_found': 'Not on Server',
                     'type_mismatch': 'Type Mismatch',
                     'invalid_rating': 'Invalid Rating',
-                    'missing_fields': 'Missing Fields'
+                    'missing_fields': 'Missing Fields',
+                    'missing_id': 'Missing IMDb ID'
                 })[effStatus] || effStatus;
 
                 var card = document.createElement('div');
@@ -826,10 +828,7 @@
 
         // ---- Force overwrite toggle updates preview ----
         $('chk-force-overwrite').addEventListener('change', function() {
-            if (previewAllItems.length > 0) {
-                updateFilterCounts();
-                renderPreviewPage();
-            }
+            if (canLoadPreview()) loadPreview();
         });
 
         // ---- Update button state ----
