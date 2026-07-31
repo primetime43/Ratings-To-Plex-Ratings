@@ -1,8 +1,11 @@
 import csv
+import hmac
+import ipaddress
 import json
 import os
 import queue
 import re
+import secrets
 import ssl
 import threading
 import urllib.request
@@ -15,6 +18,69 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = Flask(__name__)
+app.config.update(
+    CSRF_TOKEN=secrets.token_urlsafe(32),
+    REQUIRE_AUTH=False,
+    ACCESS_TOKEN="",
+)
+
+
+def _is_loopback_host(host):
+    """Return whether a bind address is restricted to this machine."""
+    normalized = (host or "").strip().lower().rstrip(".")
+    if normalized == "localhost" or normalized.endswith(".localhost"):
+        return True
+    normalized = normalized.strip("[]")
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _has_valid_access_token():
+    expected = app.config.get("ACCESS_TOKEN", "")
+    if not expected:
+        return False
+
+    candidate = ""
+    auth = request.authorization
+    if auth and (auth.type or "").lower() == "basic" and auth.username == "ratings":
+        candidate = auth.password or ""
+    else:
+        authorization = request.headers.get("Authorization", "")
+        if authorization.startswith("Bearer "):
+            candidate = authorization[7:]
+    return hmac.compare_digest(candidate, expected)
+
+
+def _same_origin_request():
+    """Reject browser requests submitted from a different origin."""
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    return hmac.compare_digest(origin.rstrip("/"), request.host_url.rstrip("/"))
+
+
+@app.before_request
+def _protect_requests():
+    if app.config.get("REQUIRE_AUTH") and not _has_valid_access_token():
+        if request.path.startswith("/api/"):
+            response = jsonify({"error": "Authentication required"})
+            response.status_code = 401
+        else:
+            response = Response("Authentication required", status=401)
+        response.headers["WWW-Authenticate"] = 'Basic realm="Ratings To Plex Ratings"'
+        return response
+
+    if request.path.startswith("/api/") and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        supplied_token = request.headers.get("X-CSRF-Token", "")
+        expected_token = app.config["CSRF_TOKEN"]
+        if not hmac.compare_digest(supplied_token, expected_token):
+            return jsonify({"error": "Invalid or missing CSRF token"}), 403
+        if not _same_origin_request():
+            return jsonify({"error": "Cross-origin request rejected"}), 403
+
+    return None
 
 # --------------- Shared state ---------------
 log_queue = queue.Queue()
@@ -127,7 +193,11 @@ def _get_controller():
 
 @app.route("/")
 def index():
-    return render_template("index.html", version=__version__)
+    return render_template(
+        "index.html",
+        version=__version__,
+        csrf_token=app.config["CSRF_TOKEN"],
+    )
 
 
 @app.route("/api/login", methods=["POST"])
@@ -550,10 +620,20 @@ def api_log_stream():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def run_web(port=5000):
+def run_web(port=5000, host="127.0.0.1"):
     """Launch the Flask web GUI and open a browser."""
+    remote_bind = not _is_loopback_host(host)
+    access_token = os.environ.get("RTP_ACCESS_TOKEN", "").strip()
+    if remote_bind and len(access_token) < 16:
+        raise RuntimeError(
+            "Refusing to bind to a non-loopback address without strong authentication. "
+            "Set RTP_ACCESS_TOKEN to at least 16 characters or bind to 127.0.0.1."
+        )
+
+    app.config["REQUIRE_AUTH"] = remote_bind
+    app.config["ACCESS_TOKEN"] = access_token
     threading.Timer(1.0, webbrowser.open, args=[f"http://localhost:{port}"]).start()
-    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":

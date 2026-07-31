@@ -113,13 +113,17 @@ Docker Hub:
 
 Pull and run the image from Docker Hub:
 ```
-docker run -p 5000:5000 primetime43/ratings-to-plex-ratings:latest
+docker run -e RTP_ACCESS_TOKEN="choose-a-strong-password" -p 127.0.0.1:5000:5000 primetime43/ratings-to-plex-ratings:latest
 ```
 Then open `http://localhost:5000` in your browser.
 
+The browser will prompt for HTTP Basic credentials. Use `ratings` as the username
+and the value of `RTP_ACCESS_TOKEN` as the password. Binding the published Docker
+port to `127.0.0.1` keeps it local to the host as an additional safeguard.
+
 To use a custom port:
 ```
-docker run -p 8080:8080 primetime43/ratings-to-plex-ratings:latest --port 8080
+docker run -e RTP_ACCESS_TOKEN="choose-a-strong-password" -p 127.0.0.1:8080:8080 primetime43/ratings-to-plex-ratings:latest --port 8080
 ```
 
 ### Option 2: Run from source
@@ -141,6 +145,20 @@ To use a custom port:
 ```
 python main.py --port 8080
 ```
+
+Source installs listen only on `127.0.0.1` by default. To deliberately allow
+connections from another device, set a strong access token and request a remote
+bind:
+
+```powershell
+$env:RTP_ACCESS_TOKEN = "choose-a-strong-password"
+python main.py --host 0.0.0.0 --port 5000
+```
+
+Remote browsers use `ratings` as the HTTP Basic username and the configured token
+as the password. Never expose this development server directly to the public
+internet; put it behind a trusted HTTPS reverse proxy if remote internet access is
+required.
 
 ## **Requirements:**
 - **Docker:** No additional requirements — just Docker installed.

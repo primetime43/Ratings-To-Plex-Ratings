@@ -175,6 +175,13 @@
 
     <script>
     (function() {
+        var csrfToken = {{ csrf_token | tojson }};
+        function apiHeaders(headers) {
+            var result = new Headers(headers || {});
+            result.set('X-CSRF-Token', csrfToken);
+            return result;
+        }
+
         var $ = function(id) { return document.getElementById(id); };
         var $logOutput     = $('log-output');
         var $statusText    = $('status-text');
@@ -479,7 +486,7 @@
             $btnLogin.disabled = true;
             setStatus('Logging in to Plex... (check browser for OAuth)', 'busy');
             appendLog('Initiating Plex login...');
-            fetch('/api/login', { method: 'POST' });
+            fetch('/api/login', { method: 'POST', headers: apiHeaders() });
         });
 
         // ---- Server -> fetch libraries ----
@@ -492,7 +499,7 @@
             appendLog('Loading libraries for server: ' + server);
             fetch('/api/libraries', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ server: server })
             })
             .then(function(r) { return r.json(); })
@@ -556,7 +563,7 @@
             $fileName.textContent = 'Uploading: ' + file.name;
             var formData = new FormData();
             formData.append('file', file);
-            fetch('/api/upload-csv', { method: 'POST', body: formData })
+            fetch('/api/upload-csv', { method: 'POST', headers: apiHeaders(), body: formData })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.error) {
@@ -630,7 +637,7 @@
             var source = (document.querySelector('input[name="source"]:checked') || {}).value || 'IMDb';
             fetch('/api/preview-items', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: apiHeaders({'Content-Type': 'application/json'}),
                 body: JSON.stringify({
                     source: source,
                     library: $librarySelect.value,
@@ -825,7 +832,7 @@
             }
             fetch('/api/update-ratings', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     source: source,
                     library: $librarySelect.value,
@@ -868,7 +875,7 @@
             $progressText.textContent = 'Scanning library...';
             fetch('/api/clear-ratings', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: apiHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     library: $librarySelect.value,
                     allLibraries: $chkAllLibs.checked

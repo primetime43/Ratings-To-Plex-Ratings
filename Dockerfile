@@ -9,5 +9,5 @@ COPY . .
 
 EXPOSE 5000
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "main.py", "--host", "0.0.0.0"]
 CMD ["--port", "5000"]
